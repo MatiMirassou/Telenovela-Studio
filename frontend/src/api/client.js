@@ -48,6 +48,10 @@ class ApiClient {
     });
   }
 
+  async updateProject(id, data) {
+    return this.request(`/projects/${id}`, { method: 'PATCH', body: data });
+  }
+
   async deleteProject(id) {
     return this.request(`/projects/${id}`, { method: 'DELETE' });
   }
@@ -371,6 +375,14 @@ class ApiClient {
 
   async getPromptsExport(projectId) {
     return this.request(`/projects/${projectId}/export/prompts`);
+  }
+
+  getScreenplayExportUrl(projectId) {
+    return `${API_BASE}/projects/${projectId}/export/screenplay`;
+  }
+
+  async getEpisodeScreenplay(episodeId) {
+    return this.request(`/episodes/${episodeId}/screenplay`);
   }
 }
 

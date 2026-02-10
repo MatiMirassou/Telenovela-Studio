@@ -12,7 +12,7 @@ from app.models.models import (
     ImagePrompt, GeneratedImage, MediaState
 )
 from app.models.schemas import (
-    ProjectCreate, ProjectResponse, ProjectDetail, StepProgress, STEP_NAMES
+    ProjectCreate, ProjectUpdate, ProjectResponse, ProjectDetail, StepProgress, STEP_NAMES
 )
 
 router = APIRouter(prefix="/projects", tags=["projects"])
@@ -47,6 +47,21 @@ def get_project(project_id: str, db: Session = Depends(get_db)):
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
     return _project_to_detail(project)
+
+
+@router.patch("/{project_id}", response_model=ProjectResponse)
+def update_project(project_id: str, data: ProjectUpdate, db: Session = Depends(get_db)):
+    """Update project settings (e.g. num_episodes)"""
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    if data.num_episodes is not None:
+        project.num_episodes = data.num_episodes
+
+    db.commit()
+    db.refresh(project)
+    return _project_to_response(project)
 
 
 @router.delete("/{project_id}")

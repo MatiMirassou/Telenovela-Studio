@@ -11,6 +11,7 @@ from datetime import datetime
 
 from app.database.session import get_db
 from app.models.models import Project
+from app.services.script_formatter import format_project_screenplays
 
 router = APIRouter(prefix="/projects/{project_id}/export", tags=["export"])
 
@@ -314,3 +315,69 @@ def export_all_prompts(project_id: str, db: Session = Depends(get_db)):
                 })
     
     return prompts
+
+
+@router.get("/screenplay")
+def export_screenplay(project_id: str, db: Session = Depends(get_db)):
+    """Export all episode scripts as a formatted Hollywood screenplay (.txt)"""
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    # Build episode data dicts for the formatter
+    episodes_data = []
+    for episode in sorted(project.episodes, key=lambda x: x.episode_number):
+        ep_data = {
+            "episode_number": episode.episode_number,
+            "title": episode.title,
+            "cold_open": episode.cold_open,
+            "music_cue": episode.music_cue,
+            "cliffhanger_moment": episode.cliffhanger_moment,
+            "scenes": []
+        }
+
+        for scene in sorted(episode.scenes, key=lambda x: x.scene_number):
+            scene_data = {
+                "scene_number": scene.scene_number,
+                "title": scene.title,
+                "location_name": scene.location.name if scene.location else "Unknown",
+                "location_type": scene.location.type if scene.location else "interior",
+                "time_of_day": scene.time_of_day,
+                "duration_seconds": scene.duration_seconds,
+                "mood": scene.mood,
+                "action_beats": scene.action_beats or [],
+                "camera_notes": scene.camera_notes or "",
+                "dialogue_lines": [
+                    {
+                        "character_name": line.character_name,
+                        "line_text": line.line_text,
+                        "direction": line.direction,
+                        "emotion": line.emotion
+                    }
+                    for line in sorted(scene.dialogue_lines, key=lambda x: x.line_number)
+                ]
+            }
+            ep_data["scenes"].append(scene_data)
+
+        episodes_data.append(ep_data)
+
+    # Format to screenplay text
+    screenplay_text = format_project_screenplays(
+        project_title=project.title or "Untitled Series",
+        episodes_data=episodes_data
+    )
+
+    # Save to file and return as download
+    os.makedirs(OUTPUTS_DIR, exist_ok=True)
+    safe_title = "".join(c for c in (project.title or "screenplay") if c.isalnum() or c in " _-").strip()
+    filename = f"{safe_title}_screenplay_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.txt"
+    filepath = os.path.join(OUTPUTS_DIR, filename)
+
+    with open(filepath, 'w', encoding='utf-8') as f:
+        f.write(screenplay_text)
+
+    return FileResponse(
+        path=filepath,
+        filename=filename,
+        media_type='text/plain; charset=utf-8'
+    )

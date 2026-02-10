@@ -12,6 +12,8 @@ export default function EpisodesPage() {
   const [generating, setGenerating] = useState(false);
   const [selectedEpisode, setSelectedEpisode] = useState(null);
   const [episodeDetail, setEpisodeDetail] = useState(null);
+  const [screenplayText, setScreenplayText] = useState(null);
+  const [viewMode, setViewMode] = useState('script'); // 'script' or 'data'
 
   useEffect(() => {
     loadData();
@@ -48,9 +50,15 @@ export default function EpisodesPage() {
 
   const viewEpisode = async (episode) => {
     setSelectedEpisode(episode);
+    setScreenplayText(null);
+    setViewMode('script');
     try {
-      const detail = await api.getEpisode(episode.id);
+      const [detail, screenplay] = await Promise.all([
+        api.getEpisode(episode.id),
+        api.getEpisodeScreenplay(episode.id)
+      ]);
       setEpisodeDetail(detail);
+      setScreenplayText(screenplay.screenplay);
     } catch (err) {
       console.error('Failed to load episode:', err);
     }
@@ -59,6 +67,7 @@ export default function EpisodesPage() {
   const closeDetail = () => {
     setSelectedEpisode(null);
     setEpisodeDetail(null);
+    setScreenplayText(null);
   };
 
   const generatedCount = episodes.filter(e => e.state !== 'pending').length;
@@ -87,16 +96,16 @@ export default function EpisodesPage() {
           <div className="progress-info">
             <span>{generatedCount} / {totalEpisodes} episodes generated</span>
             <div className="progress-bar large">
-              <div 
-                className="progress-fill" 
+              <div
+                className="progress-fill"
                 style={{ width: `${(generatedCount / totalEpisodes) * 100}%` }}
               ></div>
             </div>
           </div>
-          
+
           {generatedCount < totalEpisodes && (
-            <button 
-              onClick={generateBatch} 
+            <button
+              onClick={generateBatch}
               disabled={generating}
               className="btn btn-primary"
             >
@@ -116,8 +125,8 @@ export default function EpisodesPage() {
         {episodes.length > 0 && (
           <div className="episodes-grid">
             {episodes.map((ep) => (
-              <div 
-                key={ep.id} 
+              <div
+                key={ep.id}
                 className={`episode-card card ${ep.state}`}
                 onClick={() => ep.state !== 'pending' && viewEpisode(ep)}
               >
@@ -132,7 +141,7 @@ export default function EpisodesPage() {
                 )}
               </div>
             ))}
-            
+
             {/* Placeholder cards for ungenerated episodes */}
             {Array.from({ length: totalEpisodes - episodes.length }, (_, i) => (
               <div key={`placeholder-${i}`} className="episode-card card placeholder">
@@ -149,53 +158,88 @@ export default function EpisodesPage() {
             <div className="modal-content large" onClick={e => e.stopPropagation()}>
               <div className="modal-header">
                 <h2>Episode {selectedEpisode.episode_number}: {selectedEpisode.title}</h2>
-                <button onClick={closeDetail} className="btn-close">×</button>
-              </div>
-              
-              {episodeDetail ? (
-                <div className="episode-detail">
-                  {episodeDetail.cold_open && (
-                    <div className="cold-open">
-                      <label>Cold Open</label>
-                      <p>{episodeDetail.cold_open}</p>
-                    </div>
-                  )}
-                  
-                  <div className="scenes-list">
-                    {episodeDetail.scenes.map((scene) => (
-                      <div key={scene.id} className="scene-card">
-                        <div className="scene-header">
-                          <span className="scene-number">Scene {scene.scene_number}</span>
-                          <h4>{scene.title}</h4>
-                          <span className="scene-duration">{scene.duration_seconds}s</span>
-                        </div>
-                        
-                        <div className="scene-meta">
-                          <span>📍 {scene.location_id ? 'Location' : 'Unknown'}</span>
-                          <span>🌅 {scene.time_of_day}</span>
-                          <span>🎭 {scene.mood}</span>
-                        </div>
-                        
-                        <div className="dialogue-list">
-                          {scene.dialogue_lines.map((line) => (
-                            <div key={line.id} className="dialogue-line">
-                              <span className="character">{line.character_name}</span>
-                              {line.direction && <span className="direction">({line.direction})</span>}
-                              <p className="line-text">{line.line_text}</p>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    ))}
+                <div className="modal-header-actions">
+                  <div className="view-toggle">
+                    <button
+                      className={`btn btn-sm ${viewMode === 'script' ? 'btn-primary' : 'btn-outline'}`}
+                      onClick={() => setViewMode('script')}
+                    >
+                      Script View
+                    </button>
+                    <button
+                      className={`btn btn-sm ${viewMode === 'data' ? 'btn-primary' : 'btn-outline'}`}
+                      onClick={() => setViewMode('data')}
+                    >
+                      Data View
+                    </button>
                   </div>
-                  
-                  {episodeDetail.cliffhanger_moment && (
-                    <div className="cliffhanger-section">
-                      <label>Cliffhanger</label>
-                      <p>{episodeDetail.cliffhanger_moment}</p>
+                  <button onClick={closeDetail} className="btn-close">&times;</button>
+                </div>
+              </div>
+
+              {episodeDetail ? (
+                <>
+                  {/* Script View — Formatted Screenplay */}
+                  {viewMode === 'script' && (
+                    <div className="screenplay-view">
+                      {screenplayText ? (
+                        <pre className="screenplay-text">{screenplayText}</pre>
+                      ) : (
+                        <div className="loading-page">
+                          <div className="spinner"></div>
+                          <p>Loading screenplay...</p>
+                        </div>
+                      )}
                     </div>
                   )}
-                </div>
+
+                  {/* Data View — Original card-based layout */}
+                  {viewMode === 'data' && (
+                    <div className="episode-detail">
+                      {episodeDetail.cold_open && (
+                        <div className="cold-open">
+                          <label>Cold Open</label>
+                          <p>{episodeDetail.cold_open}</p>
+                        </div>
+                      )}
+
+                      <div className="scenes-list">
+                        {episodeDetail.scenes.map((scene) => (
+                          <div key={scene.id} className="scene-card">
+                            <div className="scene-header">
+                              <span className="scene-number">Scene {scene.scene_number}</span>
+                              <h4>{scene.title}</h4>
+                              <span className="scene-duration">{scene.duration_seconds}s</span>
+                            </div>
+
+                            <div className="scene-meta">
+                              <span>{scene.location_id ? 'Location' : 'Unknown'}</span>
+                              <span>{scene.time_of_day}</span>
+                              <span>{scene.mood}</span>
+                            </div>
+
+                            <div className="dialogue-list">
+                              {scene.dialogue_lines.map((line) => (
+                                <div key={line.id} className="dialogue-line">
+                                  <span className="character">{line.character_name}</span>
+                                  {line.direction && <span className="direction">({line.direction})</span>}
+                                  <p className="line-text">{line.line_text}</p>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+
+                      {episodeDetail.cliffhanger_moment && (
+                        <div className="cliffhanger-section">
+                          <label>Cliffhanger</label>
+                          <p>{episodeDetail.cliffhanger_moment}</p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </>
               ) : (
                 <div className="loading-page">
                   <div className="spinner"></div>
@@ -208,12 +252,12 @@ export default function EpisodesPage() {
         {/* Next Step */}
         {generatedCount >= totalEpisodes && (
           <div className="next-step-bar">
-            <span>✓ All episodes generated</span>
-            <button 
-              onClick={() => navigate(`/projects/${id}/image-prompts`)} 
+            <span>All episodes generated</span>
+            <button
+              onClick={() => navigate(`/projects/${id}/image-prompts`)}
               className="btn btn-primary btn-large"
             >
-              Generate Image Prompts →
+              Generate Image Prompts
             </button>
           </div>
         )}

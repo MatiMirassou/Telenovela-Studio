@@ -45,25 +45,26 @@ async def generate_structure(project_id: str, db: Session = Depends(get_db)):
     for e in project.episode_summaries:
         db.delete(e)
     db.flush()
-    
-    # Generate characters
-    characters_data = await generator.generate_characters(
+
+    # Generate all structure in a single AI call
+    structure_data = await generator.generate_structure(
         title=approved_idea.title,
         setting=approved_idea.setting,
         logline=approved_idea.logline,
         main_conflict=approved_idea.main_conflict,
         num_episodes=project.num_episodes
     )
-    
+
+    # Save characters (map camelCase → snake_case)
     characters = []
-    for char_data in characters_data:
+    for char_data in structure_data.get("characters", []):
         char = Character(
             project_id=project_id,
             name=char_data.get("name", "Unknown"),
             role=char_data.get("role", "supporting"),
             archetype=char_data.get("archetype", ""),
             age=char_data.get("age", ""),
-            physical_description=char_data.get("physical_description", ""),
+            physical_description=char_data.get("physicalDescription", ""),
             personality=char_data.get("personality", ""),
             motivation=char_data.get("motivation", ""),
             secret=char_data.get("secret", ""),
@@ -72,16 +73,10 @@ async def generate_structure(project_id: str, db: Session = Depends(get_db)):
         )
         db.add(char)
         characters.append(char)
-    
-    # Generate locations
-    locations_data = await generator.generate_locations(
-        title=approved_idea.title,
-        setting=approved_idea.setting,
-        characters=characters_data
-    )
-    
+
+    # Save locations (map backgroundPrompt → visual_details)
     locations = []
-    for loc_data in locations_data:
+    for loc_data in structure_data.get("locations", []):
         loc = Location(
             project_id=project_id,
             name=loc_data.get("name", "Unknown"),
@@ -89,33 +84,23 @@ async def generate_structure(project_id: str, db: Session = Depends(get_db)):
             description=loc_data.get("description", ""),
             mood=loc_data.get("mood", ""),
             significance=loc_data.get("significance", ""),
-            visual_details=loc_data.get("visual_details", ""),
+            visual_details=loc_data.get("backgroundPrompt", ""),
             state=StructureState.DRAFT
         )
         db.add(loc)
         locations.append(loc)
-    
-    # Generate episode arc
-    episode_arc_data = await generator.generate_episode_arc(
-        title=approved_idea.title,
-        setting=approved_idea.setting,
-        logline=approved_idea.logline,
-        main_conflict=approved_idea.main_conflict,
-        characters=characters_data,
-        locations=locations_data,
-        num_episodes=project.num_episodes
-    )
-    
+
+    # Save episode summaries (map camelCase → snake_case)
     episode_summaries = []
-    for ep_data in episode_arc_data:
+    for ep_data in structure_data.get("episodes", []):
         ep_summary = EpisodeSummary(
             project_id=project_id,
-            episode_number=ep_data.get("episode_number", 1),
+            episode_number=ep_data.get("number", 1),
             title=ep_data.get("title", "Untitled"),
             summary=ep_data.get("summary", ""),
-            key_beats=ep_data.get("key_beats", []),
+            key_beats=ep_data.get("keyBeats", []),
             cliffhanger=ep_data.get("cliffhanger", ""),
-            emotional_arc=ep_data.get("emotional_arc", ""),
+            emotional_arc=ep_data.get("emotionalArc", ""),
             state=StructureState.DRAFT
         )
         db.add(ep_summary)

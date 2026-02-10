@@ -4,7 +4,7 @@ Pydantic schemas for API request/response validation
 
 from datetime import datetime
 from typing import Optional, List, Any
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from enum import Enum
 
 
@@ -53,6 +53,17 @@ class ProjectCreate(BaseModel):
     title: Optional[str] = None
     setting: Optional[str] = None
     num_episodes: int = 20
+
+
+class ProjectUpdate(BaseModel):
+    num_episodes: Optional[int] = None
+
+    @field_validator('num_episodes')
+    @classmethod
+    def validate_num_episodes(cls, v):
+        if v is not None and (v < 5 or v > 25):
+            raise ValueError('num_episodes must be between 5 and 25')
+        return v
 
 
 class ProjectResponse(BaseModel):

@@ -10,6 +10,8 @@ Images API routes (Steps 6, 7, 8, 9, 10)
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List
+import os
+import logging
 
 from app.database.session import get_db
 from app.models.models import (
@@ -23,7 +25,9 @@ from app.models.schemas import (
     GeneratedImageResponse, ThumbnailResponse,
     RefPromptUpdate, ThumbnailPromptUpdate
 )
-from app.services.generator import generator
+from app.services.generator import generator, OUTPUTS_DIR
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/projects/{project_id}", tags=["images"])
 
@@ -49,30 +53,32 @@ def list_image_prompts(project_id: str, db: Session = Depends(get_db)):
 
 @router.post("/image-prompts/generate")
 async def generate_image_prompts(project_id: str, db: Session = Depends(get_db)):
-    """Generate image prompts for all scenes (Step 6)"""
+    """Generate image prompts for all scenes (Step 6) — batched per episode"""
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
-    
+
     # Check prerequisites - need generated episodes
     generated_episodes = [e for e in project.episodes if e.state in [GenerationState.GENERATED, GenerationState.APPROVED]]
     if not generated_episodes:
         raise HTTPException(status_code=400, detail="Generate episode scripts first")
-    
+
     characters_data = [
         {"name": c.name, "physical_description": c.physical_description}
         for c in project.characters
     ]
-    
+
     prompts_created = 0
-    
-    for episode in generated_episodes:
-        for scene in episode.scenes:
-            # Skip if already has prompts
-            if scene.image_prompts:
-                continue
-            
-            # Get location data
+
+    for episode in sorted(generated_episodes, key=lambda e: e.episode_number):
+        # Collect scenes that still need image prompts
+        scenes_needing_prompts = [s for s in episode.scenes if not s.image_prompts]
+        if not scenes_needing_prompts:
+            continue
+
+        # Build scene data with locations for the batch prompt
+        scenes_data = []
+        for scene in sorted(scenes_needing_prompts, key=lambda s: s.scene_number):
             location_data = {}
             if scene.location:
                 location_data = {
@@ -80,39 +86,51 @@ async def generate_image_prompts(project_id: str, db: Session = Depends(get_db))
                     "visual_details": scene.location.visual_details,
                     "mood": scene.location.mood
                 }
-            
-            scene_data = {
+            scenes_data.append({
+                "scene_number": scene.scene_number,
                 "title": scene.title,
                 "mood": scene.mood,
-                "action_beats": scene.action_beats or []
-            }
-            
-            # Generate prompts
-            prompts_data = await generator.generate_image_prompts(
-                scene=scene_data,
-                characters=characters_data,
-                location=location_data
-            )
-            
-            for prompt_data in prompts_data:
+                "action_beats": scene.action_beats or [],
+                "location": location_data
+            })
+
+        # 1 AI call per episode (instead of 1 per scene)
+        logger.info(f"Generating image prompts for episode {episode.episode_number} ({len(scenes_data)} scenes)")
+        result = await generator.generate_episode_image_prompts(
+            episode_title=episode.title or f"Episode {episode.episode_number}",
+            scenes=scenes_data,
+            characters=characters_data
+        )
+
+        # Map shots back to the correct scene DB objects
+        scene_map = {s.scene_number: s for s in scenes_needing_prompts}
+
+        for scene_result in result:
+            scene_num = scene_result.get("scene_number")
+            scene_obj = scene_map.get(scene_num)
+            if not scene_obj:
+                logger.warning(f"AI returned scene_number {scene_num} not found in episode {episode.episode_number}, skipping")
+                continue
+
+            for shot in scene_result.get("shots", []):
                 prompt = ImagePrompt(
-                    scene_id=scene.id,
-                    shot_number=prompt_data.get("shot_number", 1),
-                    shot_type=prompt_data.get("shot_type", "medium"),
-                    description=prompt_data.get("description", ""),
-                    prompt_text=prompt_data.get("prompt_text", ""),
-                    negative_prompt=prompt_data.get("negative_prompt", ""),
+                    scene_id=scene_obj.id,
+                    shot_number=shot.get("shot_number", 1),
+                    shot_type=shot.get("shot_type", "medium"),
+                    description=shot.get("description", ""),
+                    prompt_text=shot.get("prompt_text", ""),
+                    negative_prompt=shot.get("negative_prompt", ""),
                     state=PromptState.GENERATED
                 )
                 db.add(prompt)
                 prompts_created += 1
-    
+
     # Update step
     if project.current_step < 6:
         project.current_step = 6
-    
+
     db.commit()
-    
+
     return {
         "status": "generated",
         "prompts_created": prompts_created
@@ -290,15 +308,29 @@ def reject_character_ref(ref_id: str, db: Session = Depends(get_db)):
 
 
 @character_ref_router.post("/{ref_id}/regenerate")
-def regenerate_character_ref(ref_id: str, db: Session = Depends(get_db)):
-    """Queue character reference for regeneration"""
+async def regenerate_character_ref(ref_id: str, db: Session = Depends(get_db)):
+    """Regenerate character reference image"""
     ref = db.query(CharacterRef).filter(CharacterRef.id == ref_id).first()
     if not ref:
         raise HTTPException(status_code=404, detail="Character reference not found")
-    
+
     ref.reset_for_regen()
-    db.commit()
-    return {"status": "queued_for_regeneration"}
+    ref.mark_generating()
+    db.flush()
+
+    save_path = os.path.join(
+        OUTPUTS_DIR, "refs", f"char_{ref.character_id}.png"
+    )
+
+    try:
+        await generator.generate_image(ref.prompt_text, save_path, "3:4")
+        rel_path = os.path.relpath(save_path, OUTPUTS_DIR)
+        ref.mark_generated(f"/outputs/{rel_path.replace(os.sep, '/')}")
+        db.commit()
+        return {"status": "regenerated"}
+    except Exception as e:
+        db.commit()
+        raise HTTPException(status_code=500, detail=f"Regeneration failed: {str(e)}")
 
 
 # Location ref routes
@@ -346,15 +378,29 @@ def reject_location_ref(ref_id: str, db: Session = Depends(get_db)):
 
 
 @location_ref_router.post("/{ref_id}/regenerate")
-def regenerate_location_ref(ref_id: str, db: Session = Depends(get_db)):
-    """Queue location reference for regeneration"""
+async def regenerate_location_ref(ref_id: str, db: Session = Depends(get_db)):
+    """Regenerate location reference image"""
     ref = db.query(LocationRef).filter(LocationRef.id == ref_id).first()
     if not ref:
         raise HTTPException(status_code=404, detail="Location reference not found")
-    
+
     ref.reset_for_regen()
-    db.commit()
-    return {"status": "queued_for_regeneration"}
+    ref.mark_generating()
+    db.flush()
+
+    save_path = os.path.join(
+        OUTPUTS_DIR, "refs", f"loc_{ref.location_id}.png"
+    )
+
+    try:
+        await generator.generate_image(ref.prompt_text, save_path, "16:9")
+        rel_path = os.path.relpath(save_path, OUTPUTS_DIR)
+        ref.mark_generated(f"/outputs/{rel_path.replace(os.sep, '/')}")
+        db.commit()
+        return {"status": "regenerated"}
+    except Exception as e:
+        db.commit()
+        raise HTTPException(status_code=500, detail=f"Regeneration failed: {str(e)}")
 
 
 # ============================================================================
@@ -363,61 +409,120 @@ def regenerate_location_ref(ref_id: str, db: Session = Depends(get_db)):
 
 @router.post("/images/generate")
 async def generate_images(project_id: str, db: Session = Depends(get_db)):
-    """Generate images from approved prompts (Step 8) - PLACEHOLDER"""
+    """Generate images from approved prompts (Step 8) using Gemini 3 Pro"""
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
-    
-    # This is a placeholder - actual implementation would call Imagen 3 API
-    # For now, just create GeneratedImage records in PENDING state
-    
+
     images_created = 0
-    
+    errors = []
+
     for episode in project.episodes:
         for scene in episode.scenes:
             for prompt in scene.image_prompts:
                 if prompt.state == PromptState.APPROVED and not prompt.generated_image:
                     image = GeneratedImage(
                         image_prompt_id=prompt.id,
-                        state=MediaState.PENDING
+                        state=MediaState.GENERATING
                     )
                     db.add(image)
-                    images_created += 1
-    
+                    db.flush()
+
+                    # Map shot type to aspect ratio
+                    shot_type = (prompt.shot_type or "medium").lower()
+                    if shot_type in ("wide", "establishing"):
+                        aspect_ratio = "16:9"
+                    else:
+                        aspect_ratio = "9:16"
+
+                    save_path = os.path.join(
+                        OUTPUTS_DIR, "images",
+                        f"scene_{scene.id}_{prompt.shot_number}.png"
+                    )
+
+                    try:
+                        await generator.generate_image(
+                            prompt.prompt_text, save_path, aspect_ratio
+                        )
+                        # Store path relative to outputs dir for URL serving
+                        rel_path = os.path.relpath(save_path, OUTPUTS_DIR)
+                        image.mark_generated(f"/outputs/{rel_path.replace(os.sep, '/')}")
+                        images_created += 1
+                    except Exception as e:
+                        logger.error(f"Image generation failed for prompt {prompt.id}: {e}")
+                        errors.append({"prompt_id": prompt.id, "error": str(e)})
+
     # Update step
     if project.current_step < 8:
         project.current_step = 8
-    
+
     db.commit()
-    
+
     return {
-        "status": "queued",
-        "images_queued": images_created,
-        "note": "Imagen 3 integration not yet implemented - images in PENDING state"
+        "status": "generated",
+        "images_created": images_created,
+        "errors": errors
     }
 
 
 @router.post("/references/generate-images")
 async def generate_reference_images(project_id: str, db: Session = Depends(get_db)):
-    """Generate reference images - PLACEHOLDER"""
+    """Generate reference images using Gemini 3 Pro"""
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
-    
-    # Placeholder - mark refs as generating
+
+    refs_generated = 0
+    errors = []
+
+    # Generate character reference images (portrait 3:4)
     for char in project.characters:
         if char.reference and char.reference.state == MediaState.PENDING:
-            char.reference.state = MediaState.GENERATING
-    
+            char.reference.mark_generating()
+            db.flush()
+
+            save_path = os.path.join(
+                OUTPUTS_DIR, "refs", f"char_{char.id}.png"
+            )
+
+            try:
+                await generator.generate_image(
+                    char.reference.prompt_text, save_path, "3:4"
+                )
+                rel_path = os.path.relpath(save_path, OUTPUTS_DIR)
+                char.reference.mark_generated(f"/outputs/{rel_path.replace(os.sep, '/')}")
+                refs_generated += 1
+            except Exception as e:
+                logger.error(f"Character ref generation failed for {char.name}: {e}")
+                errors.append({"character": char.name, "error": str(e)})
+
+    # Generate location reference images (landscape 16:9)
     for loc in project.locations:
         if loc.reference and loc.reference.state == MediaState.PENDING:
-            loc.reference.state = MediaState.GENERATING
-    
+            loc.reference.mark_generating()
+            db.flush()
+
+            save_path = os.path.join(
+                OUTPUTS_DIR, "refs", f"loc_{loc.id}.png"
+            )
+
+            try:
+                await generator.generate_image(
+                    loc.reference.prompt_text, save_path, "16:9"
+                )
+                rel_path = os.path.relpath(save_path, OUTPUTS_DIR)
+                loc.reference.mark_generated(f"/outputs/{rel_path.replace(os.sep, '/')}")
+                refs_generated += 1
+            except Exception as e:
+                logger.error(f"Location ref generation failed for {loc.name}: {e}")
+                errors.append({"location": loc.name, "error": str(e)})
+
     db.commit()
-    
+
     return {
-        "status": "queued",
-        "note": "Imagen 3 integration not yet implemented"
+        "status": "generated",
+        "refs_generated": refs_generated,
+        "errors": errors
     }
 
 
@@ -436,11 +541,11 @@ def list_thumbnails(project_id: str, db: Session = Depends(get_db)):
 
 @router.post("/thumbnails/generate")
 async def generate_thumbnails(project_id: str, db: Session = Depends(get_db)):
-    """Generate thumbnail prompts for all episodes (Step 9)"""
+    """Generate thumbnail prompts and images for all episodes (Step 9)"""
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
-    
+
     characters_data = [
         {
             "name": c.name,
@@ -449,46 +554,71 @@ async def generate_thumbnails(project_id: str, db: Session = Depends(get_db)):
         }
         for c in project.characters
     ]
-    
+
     thumbnails_created = 0
-    
+    errors = []
+
     for episode in project.episodes:
         # Check if thumbnails already exist for this episode
         existing = [t for t in project.thumbnails if t.episode_id == episode.id]
         if existing:
             continue
-        
+
         episode_data = {
             "episode_number": episode.episode_number,
             "title": episode.title,
             "cliffhanger_moment": episode.cliffhanger_moment
         }
-        
+
         thumb_prompts = await generator.generate_thumbnail_prompts(
             episode=episode_data,
             characters=characters_data
         )
-        
+
         for thumb_data in thumb_prompts:
+            orientation = thumb_data.get("orientation", "horizontal")
             thumb = Thumbnail(
                 project_id=project_id,
                 episode_id=episode.id,
-                orientation=thumb_data.get("orientation", "horizontal"),
+                orientation=orientation,
                 prompt_text=thumb_data.get("prompt_text", ""),
-                state=MediaState.PENDING
+                state=MediaState.GENERATING
             )
             db.add(thumb)
-            thumbnails_created += 1
-    
+            db.flush()
+
+            # Generate the actual thumbnail image
+            aspect_ratio = "9:16" if orientation == "vertical" else "16:9"
+            save_path = os.path.join(
+                OUTPUTS_DIR, "thumbnails",
+                f"ep_{episode.episode_number}_{orientation}.png"
+            )
+
+            try:
+                await generator.generate_image(
+                    thumb.prompt_text, save_path, aspect_ratio
+                )
+                rel_path = os.path.relpath(save_path, OUTPUTS_DIR)
+                thumb.mark_generated(f"/outputs/{rel_path.replace(os.sep, '/')}")
+                thumbnails_created += 1
+            except Exception as e:
+                logger.error(f"Thumbnail generation failed for ep {episode.episode_number} {orientation}: {e}")
+                errors.append({
+                    "episode": episode.episode_number,
+                    "orientation": orientation,
+                    "error": str(e)
+                })
+
     # Update step
     if project.current_step < 9:
         project.current_step = 9
-    
+
     db.commit()
-    
+
     return {
         "status": "generated",
-        "thumbnails_created": thumbnails_created
+        "thumbnails_created": thumbnails_created,
+        "errors": errors
     }
 
 
@@ -534,15 +664,32 @@ def reject_thumbnail(thumb_id: str, db: Session = Depends(get_db)):
 
 
 @thumbnail_router.post("/{thumb_id}/regenerate")
-def regenerate_thumbnail(thumb_id: str, db: Session = Depends(get_db)):
-    """Queue thumbnail for regeneration"""
+async def regenerate_thumbnail(thumb_id: str, db: Session = Depends(get_db)):
+    """Regenerate thumbnail image"""
     thumb = db.query(Thumbnail).filter(Thumbnail.id == thumb_id).first()
     if not thumb:
         raise HTTPException(status_code=404, detail="Thumbnail not found")
-    
+
     thumb.reset_for_regen()
-    db.commit()
-    return {"status": "queued_for_regeneration"}
+    thumb.mark_generating()
+    db.flush()
+
+    aspect_ratio = "9:16" if thumb.orientation == "vertical" else "16:9"
+    ep_num = thumb.episode.episode_number if thumb.episode else "unknown"
+    save_path = os.path.join(
+        OUTPUTS_DIR, "thumbnails",
+        f"ep_{ep_num}_{thumb.orientation}.png"
+    )
+
+    try:
+        await generator.generate_image(thumb.prompt_text, save_path, aspect_ratio)
+        rel_path = os.path.relpath(save_path, OUTPUTS_DIR)
+        thumb.mark_generated(f"/outputs/{rel_path.replace(os.sep, '/')}")
+        db.commit()
+        return {"status": "regenerated"}
+    except Exception as e:
+        db.commit()
+        raise HTTPException(status_code=500, detail=f"Regeneration failed: {str(e)}")
 
 
 # ============================================================================
@@ -672,12 +819,34 @@ def reject_generated_image(image_id: str, db: Session = Depends(get_db)):
 
 
 @generated_image_router.post("/{image_id}/regenerate")
-def regenerate_generated_image(image_id: str, db: Session = Depends(get_db)):
-    """Queue image for regeneration"""
+async def regenerate_generated_image(image_id: str, db: Session = Depends(get_db)):
+    """Regenerate a scene image"""
     image = db.query(GeneratedImage).filter(GeneratedImage.id == image_id).first()
     if not image:
         raise HTTPException(status_code=404, detail="Image not found")
-    
+
+    prompt = image.image_prompt
     image.reset_for_regen()
-    db.commit()
-    return {"status": "queued_for_regeneration"}
+    image.mark_generating()
+    db.flush()
+
+    shot_type = (prompt.shot_type or "medium").lower()
+    if shot_type in ("wide", "establishing"):
+        aspect_ratio = "16:9"
+    else:
+        aspect_ratio = "9:16"
+
+    save_path = os.path.join(
+        OUTPUTS_DIR, "images",
+        f"scene_{prompt.scene_id}_{prompt.shot_number}.png"
+    )
+
+    try:
+        await generator.generate_image(prompt.prompt_text, save_path, aspect_ratio)
+        rel_path = os.path.relpath(save_path, OUTPUTS_DIR)
+        image.mark_generated(f"/outputs/{rel_path.replace(os.sep, '/')}")
+        db.commit()
+        return {"status": "regenerated"}
+    except Exception as e:
+        db.commit()
+        raise HTTPException(status_code=500, detail=f"Regeneration failed: {str(e)}")

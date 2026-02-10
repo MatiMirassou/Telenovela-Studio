@@ -159,7 +159,6 @@ npm run dev
 
 ## Notes
 
-- Image generation (Imagen 3) and video generation (Veo 2) are placeholder implementations
 - The system creates records in PENDING state, ready for actual API integration
 - All prompts are generated and stored, so you can use them with any image/video API
 

@@ -3,6 +3,9 @@ Telenovela Agent v2 - Main FastAPI Application
 State machine-based microservices architecture
 """
 
+from dotenv import load_dotenv
+load_dotenv()
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles

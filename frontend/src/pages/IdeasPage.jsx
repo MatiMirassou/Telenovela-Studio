@@ -11,6 +11,7 @@ export default function IdeasPage() {
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [settingHint, setSettingHint] = useState('');
+  const [numEpisodes, setNumEpisodes] = useState(20);
   const [showCustomForm, setShowCustomForm] = useState(false);
   const [customIdea, setCustomIdea] = useState({
     title: '',
@@ -32,6 +33,9 @@ export default function IdeasPage() {
       ]);
       setProject(projectData);
       setIdeas(ideasData);
+      if (projectData?.num_episodes) {
+        setNumEpisodes(projectData.num_episodes);
+      }
     } catch (err) {
       console.error('Failed to load data:', err);
     } finally {
@@ -78,8 +82,14 @@ export default function IdeasPage() {
     }
   };
 
-  const proceedToStructure = () => {
-    navigate(`/projects/${id}/structure`);
+  const proceedToStructure = async () => {
+    try {
+      await api.updateProject(id, { num_episodes: numEpisodes });
+      navigate(`/projects/${id}/structure`);
+    } catch (err) {
+      console.error('Failed to update project:', err);
+      alert('Failed to update episode count: ' + err.message);
+    }
   };
 
   const selectedIdea = ideas.find(i => i.state === 'approved');
@@ -257,6 +267,23 @@ export default function IdeasPage() {
               <span>✓ Selected:</span>
               <strong>{selectedIdea.title}</strong>
             </div>
+
+            <div className="episode-count-selector">
+              <label htmlFor="num-episodes">Episodes:</label>
+              <input
+                id="num-episodes"
+                type="range"
+                min={5}
+                max={25}
+                value={numEpisodes}
+                onChange={(e) => setNumEpisodes(Number(e.target.value))}
+              />
+              <span className="episode-count-value">{numEpisodes}</span>
+              <span className={`episode-count-hint ${numEpisodes >= 20 && numEpisodes <= 24 ? 'recommended' : ''}`}>
+                {numEpisodes >= 20 && numEpisodes <= 24 ? '(Recommended)' : '(Recommended: 20–24)'}
+              </span>
+            </div>
+
             <button onClick={proceedToStructure} className="btn btn-primary btn-large">
               Continue to Structure →
             </button>

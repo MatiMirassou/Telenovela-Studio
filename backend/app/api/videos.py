@@ -7,6 +7,8 @@ Videos API routes (Steps 11, 12)
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List
+import os
+import logging
 
 from app.database.session import get_db
 from app.models.models import (
@@ -16,7 +18,9 @@ from app.models.models import (
 from app.models.schemas import (
     VideoPromptResponse, VideoPromptUpdate, GeneratedVideoResponse
 )
-from app.services.generator import generator
+from app.services.generator import generator, OUTPUTS_DIR
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/projects/{project_id}", tags=["videos"])
 
@@ -173,37 +177,57 @@ def approve_video_prompt(prompt_id: str, db: Session = Depends(get_db)):
 
 @router.post("/videos/generate")
 async def generate_videos(project_id: str, db: Session = Depends(get_db)):
-    """Generate videos from approved prompts (Step 12) - PLACEHOLDER"""
+    """Generate videos from approved prompts (Step 12) using Veo 3.1"""
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
-    
-    # This is a placeholder - actual implementation would call Veo 2 API
-    # For now, just create GeneratedVideo records in PENDING state
-    
+
     videos_created = 0
-    
+    errors = []
+
     for episode in project.episodes:
         for scene in episode.scenes:
             for prompt in scene.video_prompts:
                 if prompt.state == PromptState.APPROVED and not prompt.generated_video:
                     video = GeneratedVideo(
                         video_prompt_id=prompt.id,
-                        state=MediaState.PENDING
+                        state=MediaState.GENERATING
                     )
                     db.add(video)
-                    videos_created += 1
-    
+                    db.flush()
+
+                    save_path = os.path.join(
+                        OUTPUTS_DIR, "videos",
+                        f"scene_{scene.id}_seg_{prompt.segment_number}.mp4"
+                    )
+
+                    try:
+                        await generator.generate_video(
+                            prompt.prompt_text,
+                            save_path,
+                            duration_seconds=prompt.duration_seconds or 8,
+                            aspect_ratio="9:16"
+                        )
+                        rel_path = os.path.relpath(save_path, OUTPUTS_DIR)
+                        video.mark_generated(
+                            f"/outputs/{rel_path.replace(os.sep, '/')}",
+                            duration=prompt.duration_seconds
+                        )
+                        videos_created += 1
+                    except Exception as e:
+                        logger.error(f"Video generation failed for prompt {prompt.id}: {e}")
+                        errors.append({"prompt_id": prompt.id, "error": str(e)})
+
     # Update step
     if project.current_step < 12:
         project.current_step = 12
-    
+
     db.commit()
-    
+
     return {
-        "status": "queued",
-        "videos_queued": videos_created,
-        "note": "Veo 2 integration not yet implemented - videos in PENDING state"
+        "status": "generated",
+        "videos_created": videos_created,
+        "errors": errors
     }
 
 
@@ -252,12 +276,36 @@ def reject_generated_video(video_id: str, db: Session = Depends(get_db)):
 
 
 @generated_video_router.post("/{video_id}/regenerate")
-def regenerate_generated_video(video_id: str, db: Session = Depends(get_db)):
-    """Queue video for regeneration"""
+async def regenerate_generated_video(video_id: str, db: Session = Depends(get_db)):
+    """Regenerate a video clip"""
     video = db.query(GeneratedVideo).filter(GeneratedVideo.id == video_id).first()
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
-    
+
+    prompt = video.video_prompt
     video.reset_for_regen()
-    db.commit()
-    return {"status": "queued_for_regeneration"}
+    video.mark_generating()
+    db.flush()
+
+    save_path = os.path.join(
+        OUTPUTS_DIR, "videos",
+        f"scene_{prompt.scene_id}_seg_{prompt.segment_number}.mp4"
+    )
+
+    try:
+        await generator.generate_video(
+            prompt.prompt_text,
+            save_path,
+            duration_seconds=prompt.duration_seconds or 8,
+            aspect_ratio="9:16"
+        )
+        rel_path = os.path.relpath(save_path, OUTPUTS_DIR)
+        video.mark_generated(
+            f"/outputs/{rel_path.replace(os.sep, '/')}",
+            duration=prompt.duration_seconds
+        )
+        db.commit()
+        return {"status": "regenerated"}
+    except Exception as e:
+        db.commit()
+        raise HTTPException(status_code=500, detail=f"Regeneration failed: {str(e)}")
