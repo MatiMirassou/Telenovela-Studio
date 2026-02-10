@@ -20,7 +20,7 @@ OUTPUTS_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "outputs")
 
 # HARDCORE SETTINGS
 
-IMAGE_STYLE = "anime, dramatic, cinematic"
+IMAGE_STYLE = "anime dramatic scene, cinematic lighting, high detail"
 
 # Ensure subdirectories exist
 for subdir in ["images", "refs", "thumbnails", "videos"]:
