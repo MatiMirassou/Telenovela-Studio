@@ -404,7 +404,7 @@ async def regenerate_location_ref(ref_id: str, db: Session = Depends(get_db)):
 
 
 # ============================================================================
-# STEP 8: GENERATE IMAGES (placeholder - needs Imagen 3 integration)
+# STEP 8: GENERATE IMAGES (Gemini 3 Pro)
 # ============================================================================
 
 @router.post("/images/generate")
