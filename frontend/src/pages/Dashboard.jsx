@@ -8,7 +8,9 @@ export default function Dashboard() {
   const [creating, setCreating] = useState(false);
   const navigate = useNavigate();
 
-  useEffect(() => { loadProjects(); }, []);
+  useEffect(() => {
+    loadProjects();
+  }, []);
 
   const loadProjects = async () => {
     try {
@@ -25,7 +27,7 @@ export default function Dashboard() {
     setCreating(true);
     try {
       const project = await api.createProject({ num_episodes: 20 });
-      navigate(`/projects/${project.id}/setup`);
+      navigate(`/projects/${project.id}/ideas`);
     } catch (err) {
       console.error('Failed to create project:', err);
       alert('Failed to create project');
@@ -38,6 +40,7 @@ export default function Dashboard() {
     e.preventDefault();
     e.stopPropagation();
     if (!confirm('Delete this project?')) return;
+    
     try {
       await api.deleteProject(id);
       setProjects(projects.filter(p => p.id !== id));
@@ -46,11 +49,22 @@ export default function Dashboard() {
     }
   };
 
-  const getProjectLink = (project) => {
-    const hasStructure = project.characters_count > 0;
-    const hasIdea = project.current_step >= 3;
-    if (hasStructure || hasIdea) return `/projects/${project.id}/studio`;
-    return `/projects/${project.id}/setup`;
+  const getStepName = (step) => {
+    const names = {
+      1: 'Generate Ideas',
+      2: 'Select Idea',
+      3: 'Generate Structure',
+      4: 'Approve Structure',
+      5: 'Generate Scripts',
+      6: 'Image Prompts',
+      7: 'References',
+      8: 'Generate Images',
+      9: 'Thumbnails',
+      10: 'Review Images',
+      11: 'Video Prompts',
+      12: 'Generate Videos',
+    };
+    return names[step] || 'Unknown';
   };
 
   if (loading) {
@@ -65,8 +79,8 @@ export default function Dashboard() {
   return (
     <div className="dashboard">
       <header className="dashboard-header">
-        <h1 className="gradient-title">Telenovela Agent</h1>
-        <p className="dashboard-subtitle">AI-powered telenovela script generation</p>
+        <h1>🎬 Telenovela Agent</h1>
+        <p>AI-powered telenovela script generation</p>
       </header>
 
       <div className="dashboard-actions">
@@ -83,44 +97,49 @@ export default function Dashboard() {
       ) : (
         <div className="project-grid">
           {projects.map((project) => (
-            <Link to={getProjectLink(project)} key={project.id} className="project-card card">
+            <Link to={`/projects/${project.id}/ideas`} key={project.id} className="project-card">
               <div className="project-card-header">
                 <h3>{project.title || 'Untitled Project'}</h3>
-                <button
-                  onClick={(e) => deleteProject(project.id, e)}
-                  className="btn-close"
+                <button 
+                  onClick={(e) => deleteProject(project.id, e)} 
+                  className="btn-icon btn-delete"
                   title="Delete project"
                 >
-                  &times;
+                  🗑️
                 </button>
               </div>
-
+              
               {project.setting && (
                 <p className="project-setting">{project.setting}</p>
               )}
-
+              
               <div className="project-meta">
-                <span className="badge">{project.num_episodes} episodes</span>
+                <span className="step-badge">
+                  Step {project.current_step}: {getStepName(project.current_step)}
+                </span>
+                <span className="episodes-badge">
+                  {project.num_episodes} episodes
+                </span>
               </div>
 
               <div className="project-stats">
                 <div className="stat">
-                  <span className="stat-value">{project.characters_count || 0}</span>
+                  <span className="stat-value">{project.characters_count}</span>
                   <span className="stat-label">Characters</span>
                 </div>
                 <div className="stat">
-                  <span className="stat-value">{project.episodes_generated || 0}</span>
-                  <span className="stat-label">Scripts</span>
+                  <span className="stat-value">{project.episodes_generated}</span>
+                  <span className="stat-label">Episodes</span>
                 </div>
                 <div className="stat">
-                  <span className="stat-value">{project.images_pending_review || 0}</span>
+                  <span className="stat-value">{project.images_pending_review}</span>
                   <span className="stat-label">Pending</span>
                 </div>
               </div>
 
               <div className="progress-bar">
-                <div
-                  className="progress-fill"
+                <div 
+                  className="progress-fill" 
                   style={{ width: `${(project.current_step / 12) * 100}%` }}
                 ></div>
               </div>

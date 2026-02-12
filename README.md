@@ -21,7 +21,7 @@ This version implements an **object-centric** architecture where each entity (id
 | 5 | Generate Scripts | AI | Generate full episode scripts with dialogue |
 | 6 | Generate Image Prompts | AI | Create prompts for scene images |
 | 7 | Generate References | AI | Create character/location reference images |
-| 8 | Generate Images | AI | Generate scene images (Gemini 3 Pro) |
+| 8 | Generate Images | AI | Generate scene images (Imagen 3) |
 | 9 | Generate Thumbnails | AI | Create episode thumbnail prompts |
 | 10 | Review Images | Human | Approve/reject generated images |
 | 11 | Generate Video Prompts | AI | Create prompts for video clips |

@@ -3,12 +3,7 @@
     "allow": [
       "WebFetch(domain:ai.google.dev)",
       "Bash(pip install:*)",
-      "Bash(cd:*)",
-      "Bash(del:*)",
-      "Bash(npx vite build)",
-      "Bash(git branch:*)",
-      "Bash(git add:*)",
-      "Bash(git commit:*)"
+      "Bash(cd:*)"
     ]
   }
 }
