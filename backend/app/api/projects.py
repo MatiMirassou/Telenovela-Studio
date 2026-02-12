@@ -2,6 +2,8 @@
 Project API routes
 """
 
+from collections import Counter
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List
@@ -12,7 +14,8 @@ from app.models.models import (
     ImagePrompt, GeneratedImage, MediaState
 )
 from app.models.schemas import (
-    ProjectCreate, ProjectUpdate, ProjectResponse, ProjectDetail, StepProgress, STEP_NAMES
+    ProjectCreate, ProjectUpdate, ProjectResponse, ProjectDetail, StepProgress, STEP_NAMES,
+    PipelineResponse, EntityStateCounts
 )
 
 router = APIRouter(prefix="/projects", tags=["projects"])
@@ -99,6 +102,67 @@ def get_step_progress(project_id: str, db: Session = Depends(get_db)):
     )
 
 
+@router.get("/{project_id}/pipeline", response_model=PipelineResponse)
+def get_pipeline(project_id: str, db: Session = Depends(get_db)):
+    """Get state distribution across all entity types for pipeline dashboard"""
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    def count_states(items):
+        counter = Counter(item.state.value for item in items)
+        return EntityStateCounts(counts=dict(counter), total=len(items))
+
+    # Direct project relationships
+    ideas = count_states(project.ideas)
+    characters = count_states(project.characters)
+    locations = count_states(project.locations)
+    episode_summaries = count_states(project.episode_summaries)
+    episodes = count_states(project.episodes)
+    thumbnails = count_states(project.thumbnails)
+
+    # Nested traversals
+    all_image_prompts = []
+    all_generated_images = []
+    all_video_prompts = []
+    all_generated_videos = []
+    all_char_refs = []
+    all_loc_refs = []
+
+    for episode in project.episodes:
+        for scene in episode.scenes:
+            all_image_prompts.extend(scene.image_prompts)
+            all_video_prompts.extend(scene.video_prompts)
+            for ip in scene.image_prompts:
+                if ip.generated_image:
+                    all_generated_images.append(ip.generated_image)
+            for vp in scene.video_prompts:
+                if vp.generated_video:
+                    all_generated_videos.append(vp.generated_video)
+
+    for char in project.characters:
+        if char.reference:
+            all_char_refs.append(char.reference)
+    for loc in project.locations:
+        if loc.reference:
+            all_loc_refs.append(loc.reference)
+
+    return PipelineResponse(
+        ideas=ideas,
+        characters=characters,
+        locations=locations,
+        episode_summaries=episode_summaries,
+        episodes=episodes,
+        image_prompts=count_states(all_image_prompts),
+        character_refs=count_states(all_char_refs),
+        location_refs=count_states(all_loc_refs),
+        generated_images=count_states(all_generated_images),
+        thumbnails=thumbnails,
+        video_prompts=count_states(all_video_prompts),
+        generated_videos=count_states(all_generated_videos),
+    )
+
+
 @router.post("/{project_id}/advance-step")
 def advance_step(project_id: str, db: Session = Depends(get_db)):
     """Advance to next step if allowed"""
@@ -145,7 +209,12 @@ def _project_to_response(project: Project) -> ProjectResponse:
         locations_count=len(project.locations),
         episodes_generated=len([e for e in project.episodes if e.state.value != "pending"]),
         images_pending_review=images_pending,
-        videos_generated=0  # TODO: count videos
+        videos_generated=sum(
+            1 for e in project.episodes
+            for s in e.scenes
+            for vp in s.video_prompts
+            if vp.generated_video and vp.generated_video.state.value in ("generated", "approved")
+        )
     )
 
 

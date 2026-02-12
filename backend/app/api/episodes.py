@@ -4,7 +4,7 @@ Episodes API routes (Step 5)
 
 import re
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import List, Optional
 
@@ -19,6 +19,7 @@ from app.models.schemas import (
 )
 from app.services.generator import generator
 from app.services.script_formatter import format_episode_screenplay
+from app.api import parse_state_filter
 
 # Episodes per AI call (to stay within token limits)
 AI_BATCH_SIZE = 3
@@ -37,13 +38,17 @@ router = APIRouter(prefix="/projects/{project_id}/episodes", tags=["episodes"])
 
 
 @router.get("", response_model=List[EpisodeResponse])
-def list_episodes(project_id: str, db: Session = Depends(get_db)):
-    """List all generated episodes"""
+def list_episodes(project_id: str, state: Optional[str] = Query(None), db: Session = Depends(get_db)):
+    """List all generated episodes. Optional ?state= filter (comma-separated)."""
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
-    
-    episodes = sorted(project.episodes, key=lambda x: x.episode_number)
+
+    episodes = project.episodes
+    states = parse_state_filter(state)
+    if states:
+        episodes = [e for e in episodes if e.state.value in states]
+    episodes = sorted(episodes, key=lambda x: x.episode_number)
     return [_episode_to_response(ep) for ep in episodes]
 
 

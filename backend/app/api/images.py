@@ -7,9 +7,9 @@ Images API routes (Steps 6, 7, 8, 9, 10)
 - Step 10: Review/Approve Images
 """
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Optional
 import os
 import logging
 
@@ -26,6 +26,7 @@ from app.models.schemas import (
     RefPromptUpdate, ThumbnailPromptUpdate
 )
 from app.services.generator import generator, OUTPUTS_DIR
+from app.api import parse_state_filter
 
 logger = logging.getLogger(__name__)
 
@@ -37,17 +38,20 @@ router = APIRouter(prefix="/projects/{project_id}", tags=["images"])
 # ============================================================================
 
 @router.get("/image-prompts", response_model=List[ImagePromptResponse])
-def list_image_prompts(project_id: str, db: Session = Depends(get_db)):
-    """List all image prompts for project"""
+def list_image_prompts(project_id: str, state: Optional[str] = Query(None), db: Session = Depends(get_db)):
+    """List all image prompts for project. Optional ?state= filter (comma-separated)."""
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
-    
+
     prompts = []
     for episode in sorted(project.episodes, key=lambda e: e.episode_number):
         for scene in sorted(episode.scenes, key=lambda s: s.scene_number):
             for prompt in sorted(scene.image_prompts, key=lambda p: p.shot_number):
                 prompts.append(prompt)
+    states = parse_state_filter(state)
+    if states:
+        prompts = [p for p in prompts if p.state.value in states]
     return prompts
 
 
@@ -182,23 +186,31 @@ def approve_image_prompt(prompt_id: str, db: Session = Depends(get_db)):
 # ============================================================================
 
 @router.get("/character-refs", response_model=List[CharacterRefResponse])
-def list_character_refs(project_id: str, db: Session = Depends(get_db)):
-    """List character reference images"""
+def list_character_refs(project_id: str, state: Optional[str] = Query(None), db: Session = Depends(get_db)):
+    """List character reference images. Optional ?state= filter (comma-separated)."""
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
-    
-    return [c.reference for c in project.characters if c.reference]
+
+    refs = [c.reference for c in project.characters if c.reference]
+    states = parse_state_filter(state)
+    if states:
+        refs = [r for r in refs if r.state.value in states]
+    return refs
 
 
 @router.get("/location-refs", response_model=List[LocationRefResponse])
-def list_location_refs(project_id: str, db: Session = Depends(get_db)):
-    """List location reference images"""
+def list_location_refs(project_id: str, state: Optional[str] = Query(None), db: Session = Depends(get_db)):
+    """List location reference images. Optional ?state= filter (comma-separated)."""
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
-    
-    return [l.reference for l in project.locations if l.reference]
+
+    refs = [l.reference for l in project.locations if l.reference]
+    states = parse_state_filter(state)
+    if states:
+        refs = [r for r in refs if r.state.value in states]
+    return refs
 
 
 @router.post("/references/generate")
@@ -531,12 +543,16 @@ async def generate_reference_images(project_id: str, db: Session = Depends(get_d
 # ============================================================================
 
 @router.get("/thumbnails", response_model=List[ThumbnailResponse])
-def list_thumbnails(project_id: str, db: Session = Depends(get_db)):
-    """List all thumbnails"""
+def list_thumbnails(project_id: str, state: Optional[str] = Query(None), db: Session = Depends(get_db)):
+    """List all thumbnails. Optional ?state= filter (comma-separated)."""
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
-    return project.thumbnails
+    thumbs = project.thumbnails
+    states = parse_state_filter(state)
+    if states:
+        thumbs = [t for t in thumbs if t.state.value in states]
+    return thumbs
 
 
 @router.post("/thumbnails/generate")

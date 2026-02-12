@@ -102,10 +102,7 @@ body {
   color: var(--success);
 }
 
-.step-link.disabled {
-  opacity: 0.5;
-  pointer-events: none;
-}
+/* disabled class removed — all steps always navigable */
 
 .step-num {
   font-size: 0.75rem;
@@ -123,6 +120,44 @@ body {
 .step-name {
   font-size: 0.7rem;
   white-space: nowrap;
+}
+
+.step-badge-count {
+  background: var(--warning, #f59e0b);
+  color: #000;
+  font-size: 0.6rem;
+  font-weight: 700;
+  min-width: 18px;
+  height: 18px;
+  border-radius: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 4px;
+  margin-top: 2px;
+}
+
+/* Pipeline mini (dashboard cards) */
+.project-pipeline {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-bottom: 1rem;
+  padding: 0.5rem 0;
+}
+
+.pipeline-mini {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.pipeline-label {
+  color: var(--text-muted);
+  font-weight: 600;
+  min-width: 65px;
 }
 
 /* Main Content */

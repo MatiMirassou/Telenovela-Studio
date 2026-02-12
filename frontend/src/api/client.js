@@ -64,12 +64,17 @@ class ApiClient {
     return this.request(`/projects/${projectId}/advance-step`, { method: 'POST' });
   }
 
+  async getPipeline(projectId) {
+    return this.request(`/projects/${projectId}/pipeline`);
+  }
+
   // =========================================================================
   // IDEAS (Step 1-2)
   // =========================================================================
 
-  async getIdeas(projectId) {
-    return this.request(`/projects/${projectId}/ideas`);
+  async getIdeas(projectId, { state } = {}) {
+    const params = state ? `?state=${state}` : '';
+    return this.request(`/projects/${projectId}/ideas${params}`);
   }
 
   async generateIdeas(projectId, settingHint = null) {
@@ -106,8 +111,9 @@ class ApiClient {
     return this.request(`/projects/${projectId}/structure/approve-all`, { method: 'POST' });
   }
 
-  async getCharacters(projectId) {
-    return this.request(`/projects/${projectId}/characters`);
+  async getCharacters(projectId, { state } = {}) {
+    const params = state ? `?state=${state}` : '';
+    return this.request(`/projects/${projectId}/characters${params}`);
   }
 
   async updateCharacter(characterId, data) {
@@ -121,8 +127,9 @@ class ApiClient {
     return this.request(`/characters/${characterId}/approve`, { method: 'POST' });
   }
 
-  async getLocations(projectId) {
-    return this.request(`/projects/${projectId}/locations`);
+  async getLocations(projectId, { state } = {}) {
+    const params = state ? `?state=${state}` : '';
+    return this.request(`/projects/${projectId}/locations${params}`);
   }
 
   async updateLocation(locationId, data) {
@@ -136,8 +143,9 @@ class ApiClient {
     return this.request(`/locations/${locationId}/approve`, { method: 'POST' });
   }
 
-  async getEpisodeSummaries(projectId) {
-    return this.request(`/projects/${projectId}/episode-summaries`);
+  async getEpisodeSummaries(projectId, { state } = {}) {
+    const params = state ? `?state=${state}` : '';
+    return this.request(`/projects/${projectId}/episode-summaries${params}`);
   }
 
   async updateEpisodeSummary(summaryId, data) {
@@ -155,8 +163,9 @@ class ApiClient {
   // EPISODES (Step 5)
   // =========================================================================
 
-  async getEpisodes(projectId) {
-    return this.request(`/projects/${projectId}/episodes`);
+  async getEpisodes(projectId, { state } = {}) {
+    const params = state ? `?state=${state}` : '';
+    return this.request(`/projects/${projectId}/episodes${params}`);
   }
 
   async getEpisode(episodeId) {
@@ -178,8 +187,9 @@ class ApiClient {
   // IMAGE PROMPTS (Step 6)
   // =========================================================================
 
-  async getImagePrompts(projectId) {
-    return this.request(`/projects/${projectId}/image-prompts`);
+  async getImagePrompts(projectId, { state } = {}) {
+    const params = state ? `?state=${state}` : '';
+    return this.request(`/projects/${projectId}/image-prompts${params}`);
   }
 
   async generateImagePrompts(projectId) {
@@ -201,12 +211,14 @@ class ApiClient {
   // REFERENCES (Step 7)
   // =========================================================================
 
-  async getCharacterRefs(projectId) {
-    return this.request(`/projects/${projectId}/character-refs`);
+  async getCharacterRefs(projectId, { state } = {}) {
+    const params = state ? `?state=${state}` : '';
+    return this.request(`/projects/${projectId}/character-refs${params}`);
   }
 
-  async getLocationRefs(projectId) {
-    return this.request(`/projects/${projectId}/location-refs`);
+  async getLocationRefs(projectId, { state } = {}) {
+    const params = state ? `?state=${state}` : '';
+    return this.request(`/projects/${projectId}/location-refs${params}`);
   }
 
   async generateReferences(projectId) {
@@ -279,8 +291,9 @@ class ApiClient {
   // THUMBNAILS (Step 9)
   // =========================================================================
 
-  async getThumbnails(projectId) {
-    return this.request(`/projects/${projectId}/thumbnails`);
+  async getThumbnails(projectId, { state } = {}) {
+    const params = state ? `?state=${state}` : '';
+    return this.request(`/projects/${projectId}/thumbnails${params}`);
   }
 
   async generateThumbnails(projectId) {
@@ -318,8 +331,9 @@ class ApiClient {
   // VIDEO PROMPTS (Step 11)
   // =========================================================================
 
-  async getVideoPrompts(projectId) {
-    return this.request(`/projects/${projectId}/video-prompts`);
+  async getVideoPrompts(projectId, { state } = {}) {
+    const params = state ? `?state=${state}` : '';
+    return this.request(`/projects/${projectId}/video-prompts${params}`);
   }
 
   async generateVideoPrompts(projectId) {
@@ -341,8 +355,9 @@ class ApiClient {
   // VIDEOS (Step 12)
   // =========================================================================
 
-  async getVideos(projectId) {
-    return this.request(`/projects/${projectId}/videos`);
+  async getVideos(projectId, { state } = {}) {
+    const params = state ? `?state=${state}` : '';
+    return this.request(`/projects/${projectId}/videos${params}`);
   }
 
   async generateVideos(projectId) {

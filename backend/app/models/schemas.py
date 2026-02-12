@@ -468,6 +468,32 @@ STEP_NAMES = {
 
 
 # ============================================================================
+# PIPELINE (Cross-entity state overview)
+# ============================================================================
+
+class EntityStateCounts(BaseModel):
+    """State distribution for one entity type"""
+    counts: dict = {}  # e.g. {"draft": 2, "approved": 5}
+    total: int = 0
+
+
+class PipelineResponse(BaseModel):
+    """Cross-entity pipeline overview for a project"""
+    ideas: EntityStateCounts = EntityStateCounts()
+    characters: EntityStateCounts = EntityStateCounts()
+    locations: EntityStateCounts = EntityStateCounts()
+    episode_summaries: EntityStateCounts = EntityStateCounts()
+    episodes: EntityStateCounts = EntityStateCounts()
+    image_prompts: EntityStateCounts = EntityStateCounts()
+    character_refs: EntityStateCounts = EntityStateCounts()
+    location_refs: EntityStateCounts = EntityStateCounts()
+    generated_images: EntityStateCounts = EntityStateCounts()
+    thumbnails: EntityStateCounts = EntityStateCounts()
+    video_prompts: EntityStateCounts = EntityStateCounts()
+    generated_videos: EntityStateCounts = EntityStateCounts()
+
+
+# ============================================================================
 # EXPORT SCHEMAS
 # ============================================================================
 

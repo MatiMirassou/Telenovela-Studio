@@ -2,9 +2,9 @@
 Structure API routes (Step 3-4): Characters, Locations, Episode Summaries
 """
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Optional
 
 from app.database.session import get_db
 from app.models.models import (
@@ -17,6 +17,7 @@ from app.models.schemas import (
     EpisodeSummaryResponse, EpisodeSummaryUpdate
 )
 from app.services.generator import generator
+from app.api import parse_state_filter
 
 router = APIRouter(prefix="/projects/{project_id}", tags=["structure"])
 
@@ -125,11 +126,14 @@ async def generate_structure(project_id: str, db: Session = Depends(get_db)):
 # ============================================================================
 
 @router.get("/characters", response_model=List[CharacterResponse])
-def list_characters(project_id: str, db: Session = Depends(get_db)):
-    """List all characters"""
+def list_characters(project_id: str, state: Optional[str] = Query(None), db: Session = Depends(get_db)):
+    """List all characters. Optional ?state= filter (comma-separated)."""
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
+    states = parse_state_filter(state)
+    if states:
+        return [c for c in project.characters if c.state.value in states]
     return project.characters
 
 
@@ -179,11 +183,14 @@ def approve_character(character_id: str, db: Session = Depends(get_db)):
 # ============================================================================
 
 @router.get("/locations", response_model=List[LocationResponse])
-def list_locations(project_id: str, db: Session = Depends(get_db)):
-    """List all locations"""
+def list_locations(project_id: str, state: Optional[str] = Query(None), db: Session = Depends(get_db)):
+    """List all locations. Optional ?state= filter (comma-separated)."""
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
+    states = parse_state_filter(state)
+    if states:
+        return [l for l in project.locations if l.state.value in states]
     return project.locations
 
 
@@ -233,12 +240,16 @@ def approve_location(location_id: str, db: Session = Depends(get_db)):
 # ============================================================================
 
 @router.get("/episode-summaries", response_model=List[EpisodeSummaryResponse])
-def list_episode_summaries(project_id: str, db: Session = Depends(get_db)):
-    """List all episode summaries"""
+def list_episode_summaries(project_id: str, state: Optional[str] = Query(None), db: Session = Depends(get_db)):
+    """List all episode summaries. Optional ?state= filter (comma-separated)."""
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
-    return sorted(project.episode_summaries, key=lambda x: x.episode_number)
+    summaries = project.episode_summaries
+    states = parse_state_filter(state)
+    if states:
+        summaries = [s for s in summaries if s.state.value in states]
+    return sorted(summaries, key=lambda x: x.episode_number)
 
 
 # Episode summary-level routes

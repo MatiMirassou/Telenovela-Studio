@@ -4,9 +4,9 @@ Videos API routes (Steps 11, 12)
 - Step 12: Generate Videos
 """
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Optional
 import os
 import logging
 
@@ -19,6 +19,7 @@ from app.models.schemas import (
     VideoPromptResponse, VideoPromptUpdate, GeneratedVideoResponse
 )
 from app.services.generator import generator, OUTPUTS_DIR
+from app.api import parse_state_filter
 
 logger = logging.getLogger(__name__)
 
@@ -30,17 +31,20 @@ router = APIRouter(prefix="/projects/{project_id}", tags=["videos"])
 # ============================================================================
 
 @router.get("/video-prompts", response_model=List[VideoPromptResponse])
-def list_video_prompts(project_id: str, db: Session = Depends(get_db)):
-    """List all video prompts for project"""
+def list_video_prompts(project_id: str, state: Optional[str] = Query(None), db: Session = Depends(get_db)):
+    """List all video prompts for project. Optional ?state= filter (comma-separated)."""
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
-    
+
     prompts = []
     for episode in sorted(project.episodes, key=lambda e: e.episode_number):
         for scene in sorted(episode.scenes, key=lambda s: s.scene_number):
             for prompt in sorted(scene.video_prompts, key=lambda p: p.segment_number):
                 prompts.append(prompt)
+    states = parse_state_filter(state)
+    if states:
+        prompts = [p for p in prompts if p.state.value in states]
     return prompts
 
 
@@ -232,18 +236,21 @@ async def generate_videos(project_id: str, db: Session = Depends(get_db)):
 
 
 @router.get("/videos", response_model=List[GeneratedVideoResponse])
-def list_videos(project_id: str, db: Session = Depends(get_db)):
-    """List all generated videos"""
+def list_videos(project_id: str, state: Optional[str] = Query(None), db: Session = Depends(get_db)):
+    """List all generated videos. Optional ?state= filter (comma-separated)."""
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
-    
+
     videos = []
     for episode in sorted(project.episodes, key=lambda e: e.episode_number):
         for scene in sorted(episode.scenes, key=lambda s: s.scene_number):
             for prompt in scene.video_prompts:
                 if prompt.generated_video:
                     videos.append(prompt.generated_video)
+    states = parse_state_filter(state)
+    if states:
+        videos = [v for v in videos if v.state.value in states]
     return videos
 
 

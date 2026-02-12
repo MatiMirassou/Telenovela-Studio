@@ -2,24 +2,28 @@
 Ideas API routes (Step 1-2)
 """
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Optional
 
 from app.database.session import get_db
 from app.models.models import Project, Idea, IdeaState
 from app.models.schemas import IdeaResponse, GenerateIdeasRequest, CustomOutlineRequest
 from app.services.generator import generator
+from app.api import parse_state_filter
 
 router = APIRouter(prefix="/projects/{project_id}/ideas", tags=["ideas"])
 
 
 @router.get("", response_model=List[IdeaResponse])
-def list_ideas(project_id: str, db: Session = Depends(get_db)):
-    """List all ideas for a project"""
+def list_ideas(project_id: str, state: Optional[str] = Query(None), db: Session = Depends(get_db)):
+    """List all ideas for a project. Optional ?state= filter (comma-separated)."""
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
+    states = parse_state_filter(state)
+    if states:
+        return [i for i in project.ideas if i.state.value in states]
     return project.ideas
 
 
