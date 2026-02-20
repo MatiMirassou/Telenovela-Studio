@@ -1,7 +1,16 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import Layout from '../components/Layout';
+import StateFilterTabs from '../components/StateFilterTabs';
 import api from '../api/client';
+
+const MEDIA_STATES = [
+  { value: 'pending', label: 'Pending' },
+  { value: 'generating', label: 'Generating' },
+  { value: 'generated', label: 'Generated' },
+  { value: 'approved', label: 'Approved' },
+  { value: 'rejected', label: 'Rejected' },
+];
 
 export default function ImagesPage() {
   const { id } = useParams();
@@ -10,14 +19,15 @@ export default function ImagesPage() {
   const [thumbnails, setThumbnails] = useState([]);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
+  const [filterState, setFilterState] = useState(null);
 
-  useEffect(() => { loadData(); }, [id]);
+  useEffect(() => { loadData(); }, [id, filterState]);
 
   const loadData = async () => {
     try {
       const [proj, thumbs] = await Promise.all([
         api.getProject(id),
-        api.getThumbnails(id)
+        api.getThumbnails(id, filterState ? { state: filterState } : {})
       ]);
       setProject(proj);
       setThumbnails(thumbs);
@@ -52,6 +62,8 @@ export default function ImagesPage() {
           <h1>Steps 8-9: Images & Thumbnails</h1>
           <p>Generate scene images and episode thumbnails</p>
         </div>
+
+        <StateFilterTabs states={MEDIA_STATES} activeState={filterState} onChange={setFilterState} />
 
         <div className="action-bar">
           <button onClick={generateImages} disabled={generating} className="btn btn-primary">

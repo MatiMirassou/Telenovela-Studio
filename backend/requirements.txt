@@ -1,7 +1,10 @@
-fastapi==0.109.0
-uvicorn==0.27.0
-sqlalchemy==2.0.25
-pydantic==2.5.3
-google-genai>=1.0.0
-python-multipart==0.0.6
-aiofiles==23.2.1
+fastapi==0.129.0
+uvicorn==0.41.0
+sqlalchemy==2.0.46
+pydantic==2.12.5
+google-genai>=1.56.0
+python-multipart==0.0.22
+aiofiles==25.1.0
+python-dotenv==1.1.0
+alembic==1.14.1
+slowapi==0.1.9

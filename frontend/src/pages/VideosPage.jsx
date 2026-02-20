@@ -1,7 +1,16 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import Layout from '../components/Layout';
+import StateFilterTabs from '../components/StateFilterTabs';
 import api from '../api/client';
+
+const MEDIA_STATES = [
+  { value: 'pending', label: 'Pending' },
+  { value: 'generating', label: 'Generating' },
+  { value: 'generated', label: 'Generated' },
+  { value: 'approved', label: 'Approved' },
+  { value: 'rejected', label: 'Rejected' },
+];
 
 export default function VideosPage() {
   const { id } = useParams();
@@ -10,14 +19,15 @@ export default function VideosPage() {
   const [videos, setVideos] = useState([]);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
+  const [filterState, setFilterState] = useState(null);
 
-  useEffect(() => { loadData(); }, [id]);
+  useEffect(() => { loadData(); }, [id, filterState]);
 
   const loadData = async () => {
     try {
       const [proj, data] = await Promise.all([
         api.getProject(id),
-        api.getVideos(id)
+        api.getVideos(id, filterState ? { state: filterState } : {})
       ]);
       setProject(proj);
       setVideos(data);
@@ -44,6 +54,8 @@ export default function VideosPage() {
           <h1>Step 12: Generate Videos</h1>
           <p>Generate video clips with Veo 2</p>
         </div>
+
+        <StateFilterTabs states={MEDIA_STATES} activeState={filterState} onChange={setFilterState} />
 
         <div className="action-bar">
           <button onClick={generateVideos} disabled={generating} className="btn btn-primary">

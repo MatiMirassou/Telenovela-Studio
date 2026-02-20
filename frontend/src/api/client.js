@@ -1,15 +1,22 @@
 /**
  * API Client for Telenovela Agent v2
+ * Uses VITE_API_URL env var in dev, falls back to same-origin in production
  */
 
-const API_BASE = 'http://localhost:8000';
+const API_BASE = import.meta.env.VITE_API_URL || '';
 
 class ApiClient {
   async request(endpoint, options = {}) {
     const url = `${API_BASE}${endpoint}`;
+
+    // Add auth token if available
+    const token = localStorage.getItem('auth_token');
+    const authHeaders = token ? { Authorization: `Bearer ${token}` } : {};
+
     const config = {
       headers: {
         'Content-Type': 'application/json',
+        ...authHeaders,
         ...options.headers,
       },
       ...options,
@@ -20,13 +27,66 @@ class ApiClient {
     }
 
     const response = await fetch(url, config);
-    
+
     if (!response.ok) {
+      // On 401, clear token and signal auth needed
+      if (response.status === 401) {
+        localStorage.removeItem('auth_token');
+        // Reload to trigger the auth check in App.jsx
+        window.location.reload();
+      }
+
       const error = await response.json().catch(() => ({ detail: 'Unknown error' }));
       throw new Error(error.detail || `HTTP ${response.status}`);
     }
 
     return response.json();
+  }
+
+  // =========================================================================
+  // AUTH
+  // =========================================================================
+
+  async getAuthStatus() {
+    // This request should NOT include auth token (it's a pre-auth check)
+    const url = `${API_BASE}/auth/status`;
+    const response = await fetch(url);
+    if (!response.ok) throw new Error('Auth check failed');
+    return response.json();
+  }
+
+  async login(password) {
+    // This request should NOT include auth token
+    const url = `${API_BASE}/login`;
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password }),
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: 'Login failed' }));
+      throw new Error(error.detail || 'Login failed');
+    }
+    return response.json();
+  }
+
+  // =========================================================================
+  // SETTINGS
+  // =========================================================================
+
+  async getApiKeyStatus() {
+    return this.request('/settings/api-key/status');
+  }
+
+  async setApiKey(apiKey) {
+    return this.request('/settings/api-key', {
+      method: 'POST',
+      body: { api_key: apiKey },
+    });
+  }
+
+  async deleteApiKey() {
+    return this.request('/settings/api-key', { method: 'DELETE' });
   }
 
   // =========================================================================
@@ -374,6 +434,38 @@ class ApiClient {
 
   async regenerateVideo(videoId) {
     return this.request(`/generated-videos/${videoId}/regenerate`, { method: 'POST' });
+  }
+
+  // =========================================================================
+  // RECOVERY (reset stuck entities)
+  // =========================================================================
+
+  async resetEntity(entityType, entityId) {
+    return this.request(`/${entityType}/${entityId}/reset`, { method: 'POST' });
+  }
+
+  async getStuckEntities(projectId, minutes = 10) {
+    return this.request(`/projects/${projectId}/stuck?minutes=${minutes}`);
+  }
+
+  // =========================================================================
+  // UNAPPROVE (rollback approved items for re-editing)
+  // =========================================================================
+
+  async unapproveCharacter(characterId) {
+    return this.request(`/characters/${characterId}/unapprove`, { method: 'POST' });
+  }
+
+  async unapproveLocation(locationId) {
+    return this.request(`/locations/${locationId}/unapprove`, { method: 'POST' });
+  }
+
+  async unapproveEpisodeSummary(summaryId) {
+    return this.request(`/episode-summaries/${summaryId}/unapprove`, { method: 'POST' });
+  }
+
+  async unapproveEpisode(episodeId) {
+    return this.request(`/episodes/${episodeId}/unapprove`, { method: 'POST' });
   }
 
   // =========================================================================

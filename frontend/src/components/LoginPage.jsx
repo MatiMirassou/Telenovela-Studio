@@ -1,0 +1,75 @@
+import { useState } from 'react';
+import api from '../api/client';
+
+export default function LoginPage({ onLogin }) {
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!password.trim()) {
+      setError('Please enter a password');
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+
+    try {
+      const result = await api.login(password.trim());
+      // Store token in localStorage
+      localStorage.setItem('auth_token', result.token);
+      onLogin(result.token);
+    } catch (err) {
+      setError(err.message || 'Incorrect password');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter') {
+      handleSubmit(e);
+    }
+  };
+
+  return (
+    <div className="login-page">
+      <div className="login-card">
+        <div className="login-header">
+          <h1 className="login-title">Telenovela Agent</h1>
+          <p className="login-subtitle">Enter password to continue</p>
+        </div>
+
+        <form onSubmit={handleSubmit} className="login-form">
+          <div className="form-group">
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="Password"
+              className="login-input"
+              disabled={loading}
+              autoFocus
+              autoComplete="current-password"
+            />
+          </div>
+
+          {error && (
+            <div className="login-error">{error}</div>
+          )}
+
+          <button
+            type="submit"
+            disabled={loading || !password.trim()}
+            className="btn btn-primary btn-full"
+          >
+            {loading ? 'Signing in...' : 'Sign In'}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}

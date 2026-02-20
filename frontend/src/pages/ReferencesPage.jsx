@@ -1,7 +1,16 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import Layout from '../components/Layout';
+import StateFilterTabs from '../components/StateFilterTabs';
 import api from '../api/client';
+
+const MEDIA_STATES = [
+  { value: 'pending', label: 'Pending' },
+  { value: 'generating', label: 'Generating' },
+  { value: 'generated', label: 'Generated' },
+  { value: 'approved', label: 'Approved' },
+  { value: 'rejected', label: 'Rejected' },
+];
 
 export default function ReferencesPage() {
   const { id } = useParams();
@@ -11,15 +20,17 @@ export default function ReferencesPage() {
   const [locRefs, setLocRefs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
+  const [filterState, setFilterState] = useState(null);
 
-  useEffect(() => { loadData(); }, [id]);
+  useEffect(() => { loadData(); }, [id, filterState]);
 
   const loadData = async () => {
     try {
+      const opts = filterState ? { state: filterState } : {};
       const [proj, chars, locs] = await Promise.all([
         api.getProject(id),
-        api.getCharacterRefs(id),
-        api.getLocationRefs(id)
+        api.getCharacterRefs(id, opts),
+        api.getLocationRefs(id, opts)
       ]);
       setProject(proj);
       setCharRefs(chars);
@@ -29,6 +40,13 @@ export default function ReferencesPage() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const resetRef = async (entityType, refId) => {
+    try {
+      await api.resetEntity(entityType, refId);
+      await loadData();
+    } catch (err) { alert('Reset failed: ' + err.message); }
   };
 
   const generateRefs = async () => {
@@ -52,6 +70,8 @@ export default function ReferencesPage() {
           <h1>Step 7: Reference Images</h1>
           <p>Generate reference images for characters and locations</p>
         </div>
+
+        <StateFilterTabs states={MEDIA_STATES} activeState={filterState} onChange={setFilterState} />
 
         <div className="action-bar">
           <button onClick={generateRefs} disabled={generating} className="btn btn-primary">

@@ -4,7 +4,7 @@ Videos API routes (Steps 11, 12)
 - Step 12: Generate Videos
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 from typing import List, Optional
 import os
@@ -20,6 +20,7 @@ from app.models.schemas import (
 )
 from app.services.generator import generator, OUTPUTS_DIR
 from app.api import parse_state_filter
+from app.middleware.rate_limit import limiter, AI_GENERATION_LIMIT, MEDIA_GENERATION_LIMIT
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +50,8 @@ def list_video_prompts(project_id: str, state: Optional[str] = Query(None), db: 
 
 
 @router.post("/video-prompts/generate")
-async def generate_video_prompts(project_id: str, db: Session = Depends(get_db)):
+@limiter.limit(AI_GENERATION_LIMIT)
+async def generate_video_prompts(request: Request, project_id: str, db: Session = Depends(get_db)):
     """Generate video prompts for all scenes (Step 11)"""
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
@@ -180,7 +182,8 @@ def approve_video_prompt(prompt_id: str, db: Session = Depends(get_db)):
 # ============================================================================
 
 @router.post("/videos/generate")
-async def generate_videos(project_id: str, db: Session = Depends(get_db)):
+@limiter.limit(MEDIA_GENERATION_LIMIT)
+async def generate_videos(request: Request, project_id: str, db: Session = Depends(get_db)):
     """Generate videos from approved prompts (Step 12) using Veo 3.1"""
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
@@ -195,10 +198,10 @@ async def generate_videos(project_id: str, db: Session = Depends(get_db)):
                 if prompt.state == PromptState.APPROVED and not prompt.generated_video:
                     video = GeneratedVideo(
                         video_prompt_id=prompt.id,
-                        state=MediaState.GENERATING
                     )
                     db.add(video)
                     db.flush()
+                    video.mark_generating()
 
                     save_path = os.path.join(
                         OUTPUTS_DIR, "videos",

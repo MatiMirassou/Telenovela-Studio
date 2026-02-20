@@ -2,7 +2,14 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import Layout from '../components/Layout';
+import StateFilterTabs from '../components/StateFilterTabs';
 import api from '../api/client';
+
+const PROMPT_STATES = [
+  { value: 'pending', label: 'Pending' },
+  { value: 'generated', label: 'Generated' },
+  { value: 'approved', label: 'Approved' },
+];
 
 export default function ImagePromptsPage() {
   const { id } = useParams();
@@ -11,16 +18,17 @@ export default function ImagePromptsPage() {
   const [prompts, setPrompts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
+  const [filterState, setFilterState] = useState(null);
 
   useEffect(() => {
     loadData();
-  }, [id]);
+  }, [id, filterState]);
 
   const loadData = async () => {
     try {
       const [projectData, promptsData] = await Promise.all([
         api.getProject(id),
-        api.getImagePrompts(id)
+        api.getImagePrompts(id, filterState ? { state: filterState } : {})
       ]);
       setProject(projectData);
       setPrompts(promptsData);
@@ -52,6 +60,8 @@ export default function ImagePromptsPage() {
           <h1>Step 6: Image Prompts</h1>
           <p>Generate prompts for scene images</p>
         </div>
+
+        <StateFilterTabs states={PROMPT_STATES} activeState={filterState} onChange={setFilterState} />
 
         <div className="action-bar">
           <button onClick={generatePrompts} disabled={generating} className="btn btn-primary">

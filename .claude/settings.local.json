@@ -3,7 +3,30 @@
     "allow": [
       "WebFetch(domain:ai.google.dev)",
       "Bash(pip install:*)",
-      "Bash(cd:*)"
+      "Bash(cd:*)",
+      "Bash(del:*)",
+      "Bash(npx vite build)",
+      "Bash(git branch:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(find:*)",
+      "Bash(wc:*)",
+      "Bash(dir:*)",
+      "Bash(git revert:*)",
+      "Bash(git stash:*)",
+      "Bash(git checkout:*)",
+      "Bash(git restore:*)",
+      "Bash(git push:*)",
+      "Bash(test:*)",
+      "Bash(python -c:*)",
+      "Bash(python -m alembic revision:*)",
+      "Bash(alembic revision:*)",
+      "Bash(pip show:*)",
+      "Bash(timeout 10 python:*)",
+      "Bash(npm run build:*)",
+      "Bash(docker --version:*)",
+      "Bash(docker build:*)",
+      "Bash(npx:*)"
     ]
   }
 }

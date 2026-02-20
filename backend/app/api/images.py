@@ -7,7 +7,7 @@ Images API routes (Steps 6, 7, 8, 9, 10)
 - Step 10: Review/Approve Images
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 from typing import List, Optional
 import os
@@ -27,6 +27,7 @@ from app.models.schemas import (
 )
 from app.services.generator import generator, OUTPUTS_DIR
 from app.api import parse_state_filter
+from app.middleware.rate_limit import limiter, AI_GENERATION_LIMIT, MEDIA_GENERATION_LIMIT
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +57,8 @@ def list_image_prompts(project_id: str, state: Optional[str] = Query(None), db: 
 
 
 @router.post("/image-prompts/generate")
-async def generate_image_prompts(project_id: str, db: Session = Depends(get_db)):
+@limiter.limit(AI_GENERATION_LIMIT)
+async def generate_image_prompts(request: Request, project_id: str, db: Session = Depends(get_db)):
     """Generate image prompts for all scenes (Step 6) — batched per episode"""
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
@@ -214,7 +216,8 @@ def list_location_refs(project_id: str, state: Optional[str] = Query(None), db: 
 
 
 @router.post("/references/generate")
-async def generate_reference_prompts(project_id: str, db: Session = Depends(get_db)):
+@limiter.limit(AI_GENERATION_LIMIT)
+async def generate_reference_prompts(request: Request, project_id: str, db: Session = Depends(get_db)):
     """Generate prompts for character and location reference images (Step 7)"""
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
@@ -420,7 +423,8 @@ async def regenerate_location_ref(ref_id: str, db: Session = Depends(get_db)):
 # ============================================================================
 
 @router.post("/images/generate")
-async def generate_images(project_id: str, db: Session = Depends(get_db)):
+@limiter.limit(MEDIA_GENERATION_LIMIT)
+async def generate_images(request: Request, project_id: str, db: Session = Depends(get_db)):
     """Generate images from approved prompts (Step 8) using Gemini 3 Pro"""
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
@@ -435,10 +439,10 @@ async def generate_images(project_id: str, db: Session = Depends(get_db)):
                 if prompt.state == PromptState.APPROVED and not prompt.generated_image:
                     image = GeneratedImage(
                         image_prompt_id=prompt.id,
-                        state=MediaState.GENERATING
                     )
                     db.add(image)
                     db.flush()
+                    image.mark_generating()
 
                     # Map shot type to aspect ratio
                     shot_type = (prompt.shot_type or "medium").lower()
@@ -478,7 +482,8 @@ async def generate_images(project_id: str, db: Session = Depends(get_db)):
 
 
 @router.post("/references/generate-images")
-async def generate_reference_images(project_id: str, db: Session = Depends(get_db)):
+@limiter.limit(MEDIA_GENERATION_LIMIT)
+async def generate_reference_images(request: Request, project_id: str, db: Session = Depends(get_db)):
     """Generate reference images using Gemini 3 Pro"""
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
@@ -556,7 +561,8 @@ def list_thumbnails(project_id: str, state: Optional[str] = Query(None), db: Ses
 
 
 @router.post("/thumbnails/generate")
-async def generate_thumbnails(project_id: str, db: Session = Depends(get_db)):
+@limiter.limit(MEDIA_GENERATION_LIMIT)
+async def generate_thumbnails(request: Request, project_id: str, db: Session = Depends(get_db)):
     """Generate thumbnail prompts and images for all episodes (Step 9)"""
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
@@ -598,10 +604,10 @@ async def generate_thumbnails(project_id: str, db: Session = Depends(get_db)):
                 episode_id=episode.id,
                 orientation=orientation,
                 prompt_text=thumb_data.get("prompt_text", ""),
-                state=MediaState.GENERATING
             )
             db.add(thumb)
             db.flush()
+            thumb.mark_generating()
 
             # Generate the actual thumbnail image
             aspect_ratio = "9:16" if orientation == "vertical" else "16:9"

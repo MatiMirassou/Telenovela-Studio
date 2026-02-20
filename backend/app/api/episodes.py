@@ -4,7 +4,7 @@ Episodes API routes (Step 5)
 
 import re
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 from typing import List, Optional
 
@@ -20,6 +20,7 @@ from app.models.schemas import (
 from app.services.generator import generator
 from app.services.script_formatter import format_episode_screenplay
 from app.api import parse_state_filter
+from app.middleware.rate_limit import limiter, AI_GENERATION_LIMIT
 
 # Episodes per AI call (to stay within token limits)
 AI_BATCH_SIZE = 3
@@ -53,9 +54,11 @@ def list_episodes(project_id: str, state: Optional[str] = Query(None), db: Sessi
 
 
 @router.post("/generate")
+@limiter.limit(AI_GENERATION_LIMIT)
 async def generate_episodes(
+    request: Request,
     project_id: str,
-    request: GenerateEpisodesRequest = None,
+    body: GenerateEpisodesRequest = None,
     db: Session = Depends(get_db)
 ):
     """Generate next batch of episode scripts (Step 5)"""
@@ -71,7 +74,7 @@ async def generate_episodes(
     if not all(e.state == StructureState.APPROVED for e in project.episode_summaries):
         raise HTTPException(status_code=400, detail="All episode summaries must be approved first")
     
-    batch_size = request.batch_size if request else 5
+    batch_size = body.batch_size if body else 5
     
     # Find which episodes still need to be generated
     generated_numbers = {ep.episode_number for ep in project.episodes if ep.state != GenerationState.PENDING}
@@ -143,7 +146,7 @@ async def generate_episodes(
                 episode = Episode(
                     project_id=project_id,
                     episode_number=summary.episode_number,
-                    state=GenerationState.GENERATING
+                    state=GenerationState.PENDING
                 )
                 db.add(episode)
                 db.flush()
@@ -403,3 +406,14 @@ def _episode_to_detail(episode: Episode) -> EpisodeDetail:
         created_at=episode.created_at,
         scenes=scenes
     )
+
+
+@episode_router.post("/{episode_id}/unapprove")
+def unapprove_episode(episode_id: str, db: Session = Depends(get_db)):
+    """Unapprove an episode (revert to generated for re-review)"""
+    episode = db.query(Episode).filter(Episode.id == episode_id).first()
+    if not episode:
+        raise HTTPException(status_code=404, detail="Episode not found")
+    episode.unapprove()
+    db.commit()
+    return {"status": "unapproved", "episode_id": episode_id}

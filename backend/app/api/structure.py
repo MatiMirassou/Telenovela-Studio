@@ -2,7 +2,7 @@
 Structure API routes (Step 3-4): Characters, Locations, Episode Summaries
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 from typing import List, Optional
 
@@ -18,6 +18,7 @@ from app.models.schemas import (
 )
 from app.services.generator import generator
 from app.api import parse_state_filter
+from app.middleware.rate_limit import limiter, AI_GENERATION_LIMIT
 
 router = APIRouter(prefix="/projects/{project_id}", tags=["structure"])
 
@@ -27,7 +28,8 @@ router = APIRouter(prefix="/projects/{project_id}", tags=["structure"])
 # ============================================================================
 
 @router.post("/structure/generate")
-async def generate_structure(project_id: str, db: Session = Depends(get_db)):
+@limiter.limit(AI_GENERATION_LIMIT)
+async def generate_structure(request: Request, project_id: str, db: Session = Depends(get_db)):
     """Generate characters, locations, and episode arc (Step 3)"""
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
@@ -305,11 +307,14 @@ def approve_all_structure(project_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Project not found")
     
     for char in project.characters:
-        char.approve()
+        if char.state != StructureState.APPROVED:
+            char.approve()
     for loc in project.locations:
-        loc.approve()
+        if loc.state != StructureState.APPROVED:
+            loc.approve()
     for ep in project.episode_summaries:
-        ep.approve()
+        if ep.state != StructureState.APPROVED:
+            ep.approve()
     
     # Advance to step 4 (structure approved)
     if project.current_step < 4:
@@ -323,3 +328,40 @@ def approve_all_structure(project_id: str, db: Session = Depends(get_db)):
         "locations_approved": len(project.locations),
         "episode_summaries_approved": len(project.episode_summaries)
     }
+
+
+# ============================================================================
+# UNAPPROVE (Rollback to MODIFIED for re-editing)
+# ============================================================================
+
+@character_router.post("/{character_id}/unapprove")
+def unapprove_character(character_id: str, db: Session = Depends(get_db)):
+    """Unapprove a character (revert to modified for re-editing)"""
+    char = db.query(Character).filter(Character.id == character_id).first()
+    if not char:
+        raise HTTPException(status_code=404, detail="Character not found")
+    char.unapprove()
+    db.commit()
+    return {"status": "unapproved", "character_id": character_id}
+
+
+@location_router.post("/{location_id}/unapprove")
+def unapprove_location(location_id: str, db: Session = Depends(get_db)):
+    """Unapprove a location (revert to modified for re-editing)"""
+    loc = db.query(Location).filter(Location.id == location_id).first()
+    if not loc:
+        raise HTTPException(status_code=404, detail="Location not found")
+    loc.unapprove()
+    db.commit()
+    return {"status": "unapproved", "location_id": location_id}
+
+
+@episode_summary_router.post("/{summary_id}/unapprove")
+def unapprove_episode_summary(summary_id: str, db: Session = Depends(get_db)):
+    """Unapprove an episode summary (revert to modified for re-editing)"""
+    ep = db.query(EpisodeSummary).filter(EpisodeSummary.id == summary_id).first()
+    if not ep:
+        raise HTTPException(status_code=404, detail="Episode summary not found")
+    ep.unapprove()
+    db.commit()
+    return {"status": "unapproved", "summary_id": summary_id}

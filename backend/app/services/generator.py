@@ -733,3 +733,14 @@ Return ONLY valid JSON array:
 
 # Singleton instance
 generator = GeminiGenerator()
+
+
+def reinitialize(api_key: str | None = None):
+    """
+    Reinitialize the global generator singleton with a new API key.
+    Called when the user sets/changes their API key via the settings UI.
+    All route files import `generator` from this module, so updating
+    the module-level variable affects all subsequent API calls.
+    """
+    global generator
+    generator = GeminiGenerator(api_key=api_key)

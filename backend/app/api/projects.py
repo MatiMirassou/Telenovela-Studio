@@ -5,13 +5,14 @@ Project API routes
 from collections import Counter
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 from typing import List
 
 from app.database.session import get_db
 from app.models.models import (
     Project, Idea, Character, Location, EpisodeSummary, Episode,
-    ImagePrompt, GeneratedImage, MediaState
+    Scene, ImagePrompt, GeneratedImage, VideoPrompt, GeneratedVideo,
+    CharacterRef, LocationRef, MediaState
 )
 from app.models.schemas import (
     ProjectCreate, ProjectUpdate, ProjectResponse, ProjectDetail, StepProgress, STEP_NAMES,
@@ -20,6 +21,51 @@ from app.models.schemas import (
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
+
+# ============================================================================
+# EAGER LOADING OPTIONS (prevents N+1 queries)
+# ============================================================================
+
+def _full_project_options():
+    """Eager loading options for a project with ALL nested relationships.
+    Used by endpoints that traverse episodes → scenes → prompts → media."""
+    return [
+        selectinload(Project.ideas),
+        selectinload(Project.characters).selectinload(Character.reference),
+        selectinload(Project.locations).selectinload(Location.reference),
+        selectinload(Project.episode_summaries),
+        selectinload(Project.thumbnails),
+        selectinload(Project.episodes)
+            .selectinload(Episode.scenes)
+            .selectinload(Scene.image_prompts)
+            .selectinload(ImagePrompt.generated_image),
+        selectinload(Project.episodes)
+            .selectinload(Episode.scenes)
+            .selectinload(Scene.video_prompts)
+            .selectinload(VideoPrompt.generated_video),
+    ]
+
+
+def _light_project_options():
+    """Lighter eager loading for project list (no deep nesting)."""
+    return [
+        selectinload(Project.ideas),
+        selectinload(Project.characters),
+        selectinload(Project.locations),
+        selectinload(Project.episodes)
+            .selectinload(Episode.scenes)
+            .selectinload(Scene.image_prompts)
+            .selectinload(ImagePrompt.generated_image),
+        selectinload(Project.episodes)
+            .selectinload(Episode.scenes)
+            .selectinload(Scene.video_prompts)
+            .selectinload(VideoPrompt.generated_video),
+    ]
+
+
+# ============================================================================
+# ENDPOINTS
+# ============================================================================
 
 @router.post("", response_model=ProjectResponse)
 def create_project(data: ProjectCreate, db: Session = Depends(get_db)):
@@ -39,14 +85,24 @@ def create_project(data: ProjectCreate, db: Session = Depends(get_db)):
 @router.get("", response_model=List[ProjectResponse])
 def list_projects(db: Session = Depends(get_db)):
     """List all projects"""
-    projects = db.query(Project).order_by(Project.updated_at.desc()).all()
+    projects = (
+        db.query(Project)
+        .options(*_light_project_options())
+        .order_by(Project.updated_at.desc())
+        .all()
+    )
     return [_project_to_response(p) for p in projects]
 
 
 @router.get("/{project_id}", response_model=ProjectDetail)
 def get_project(project_id: str, db: Session = Depends(get_db)):
     """Get project with all details"""
-    project = db.query(Project).filter(Project.id == project_id).first()
+    project = (
+        db.query(Project)
+        .options(*_full_project_options())
+        .filter(Project.id == project_id)
+        .first()
+    )
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
     return _project_to_detail(project)
@@ -81,16 +137,21 @@ def delete_project(project_id: str, db: Session = Depends(get_db)):
 @router.get("/{project_id}/progress", response_model=StepProgress)
 def get_step_progress(project_id: str, db: Session = Depends(get_db)):
     """Get current step progress"""
-    project = db.query(Project).filter(Project.id == project_id).first()
+    project = (
+        db.query(Project)
+        .options(*_full_project_options())
+        .filter(Project.id == project_id)
+        .first()
+    )
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
-    
+
     step = project.current_step
     can_proceed = project.can_advance_to(step + 1)
-    
+
     # Calculate progress based on current step
     items_total, items_completed, items_pending, blocking_reason = _get_step_stats(project, step)
-    
+
     return StepProgress(
         current_step=step,
         step_name=STEP_NAMES.get(step, "Unknown"),
@@ -105,7 +166,12 @@ def get_step_progress(project_id: str, db: Session = Depends(get_db)):
 @router.get("/{project_id}/pipeline", response_model=PipelineResponse)
 def get_pipeline(project_id: str, db: Session = Depends(get_db)):
     """Get state distribution across all entity types for pipeline dashboard"""
-    project = db.query(Project).filter(Project.id == project_id).first()
+    project = (
+        db.query(Project)
+        .options(*_full_project_options())
+        .filter(Project.id == project_id)
+        .first()
+    )
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
@@ -113,7 +179,7 @@ def get_pipeline(project_id: str, db: Session = Depends(get_db)):
         counter = Counter(item.state.value for item in items)
         return EntityStateCounts(counts=dict(counter), total=len(items))
 
-    # Direct project relationships
+    # Direct project relationships (already eager-loaded)
     ideas = count_states(project.ideas)
     characters = count_states(project.characters)
     locations = count_states(project.locations)
@@ -121,7 +187,7 @@ def get_pipeline(project_id: str, db: Session = Depends(get_db)):
     episodes = count_states(project.episodes)
     thumbnails = count_states(project.thumbnails)
 
-    # Nested traversals
+    # Nested traversals (already eager-loaded — no extra queries)
     all_image_prompts = []
     all_generated_images = []
     all_video_prompts = []
@@ -169,33 +235,37 @@ def advance_step(project_id: str, db: Session = Depends(get_db)):
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
-    
+
     next_step = project.current_step + 1
     if next_step > 12:
         raise HTTPException(status_code=400, detail="Already at final step")
-    
+
     if not project.can_advance_to(next_step):
         raise HTTPException(status_code=400, detail=f"Cannot advance to step {next_step} - prerequisites not met")
-    
+
     project.current_step = next_step
     db.commit()
-    
+
     return {
         "current_step": project.current_step,
         "step_name": STEP_NAMES.get(project.current_step, "Unknown")
     }
 
 
+# ============================================================================
+# HELPER FUNCTIONS
+# ============================================================================
+
 def _project_to_response(project: Project) -> ProjectResponse:
     """Convert Project model to response schema"""
-    # Count images pending review
+    # Count images pending review (data already eager-loaded)
     images_pending = 0
     for episode in project.episodes:
         for scene in episode.scenes:
             for img_prompt in scene.image_prompts:
                 if img_prompt.generated_image and img_prompt.generated_image.state == MediaState.GENERATED:
                     images_pending += 1
-    
+
     return ProjectResponse(
         id=project.id,
         title=project.title,
@@ -236,20 +306,20 @@ def _get_step_stats(project: Project, step: int) -> tuple:
     items_completed = 0
     items_pending = 0
     blocking_reason = None
-    
+
     if step == 1:  # Generate Ideas
         items_total = 3
         items_completed = len(project.ideas)
         items_pending = 3 - items_completed
         if items_pending > 0:
             blocking_reason = "Generate ideas first"
-    
+
     elif step == 2:  # Select Idea
         items_total = len(project.ideas)
         items_completed = len([i for i in project.ideas if i.state.value == "approved"])
         if items_completed == 0:
             blocking_reason = "Select an idea to continue"
-    
+
     elif step == 3:  # Generate Structure
         items_total = 3  # characters, locations, episode_summaries
         if len(project.characters) > 0:
@@ -261,12 +331,12 @@ def _get_step_stats(project: Project, step: int) -> tuple:
         items_pending = items_total - items_completed
         if items_pending > 0:
             blocking_reason = "Generate structure (characters, locations, episode arc)"
-    
+
     elif step == 4:  # Approve Structure
         chars_approved = all(c.state.value == "approved" for c in project.characters)
         locs_approved = all(l.state.value == "approved" for l in project.locations)
         eps_approved = all(e.state.value == "approved" for e in project.episode_summaries)
-        
+
         items_total = len(project.characters) + len(project.locations) + len(project.episode_summaries)
         items_completed = (
             len([c for c in project.characters if c.state.value == "approved"]) +
@@ -274,17 +344,17 @@ def _get_step_stats(project: Project, step: int) -> tuple:
             len([e for e in project.episode_summaries if e.state.value == "approved"])
         )
         items_pending = items_total - items_completed
-        
+
         if not (chars_approved and locs_approved and eps_approved):
             blocking_reason = "Approve all characters, locations, and episode summaries"
-    
+
     elif step == 5:  # Generate Episodes
         items_total = project.num_episodes
         items_completed = len([e for e in project.episodes if e.state.value in ["generated", "approved"]])
         items_pending = items_total - items_completed
         if items_pending > 0:
             blocking_reason = f"Generate remaining {items_pending} episodes"
-    
+
     elif step == 10:  # Review Images
         all_images = []
         for episode in project.episodes:
@@ -292,12 +362,12 @@ def _get_step_stats(project: Project, step: int) -> tuple:
                 for img_prompt in scene.image_prompts:
                     if img_prompt.generated_image:
                         all_images.append(img_prompt.generated_image)
-        
+
         items_total = len(all_images)
         items_completed = len([i for i in all_images if i.state.value == "approved"])
         items_pending = len([i for i in all_images if i.state.value == "generated"])
-        
+
         if items_pending > 0:
             blocking_reason = f"Review {items_pending} pending images"
-    
+
     return items_total, items_completed, items_pending, blocking_reason

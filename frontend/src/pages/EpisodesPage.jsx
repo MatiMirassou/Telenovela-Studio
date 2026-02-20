@@ -1,7 +1,15 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import Layout from '../components/Layout';
+import StateFilterTabs from '../components/StateFilterTabs';
 import api from '../api/client';
+
+const EPISODE_STATES = [
+  { value: 'pending', label: 'Pending' },
+  { value: 'generating', label: 'Generating' },
+  { value: 'generated', label: 'Generated' },
+  { value: 'approved', label: 'Approved' },
+];
 
 export default function EpisodesPage() {
   const { id } = useParams();
@@ -14,16 +22,17 @@ export default function EpisodesPage() {
   const [episodeDetail, setEpisodeDetail] = useState(null);
   const [screenplayText, setScreenplayText] = useState(null);
   const [viewMode, setViewMode] = useState('script'); // 'script' or 'data'
+  const [filterState, setFilterState] = useState(null);
 
   useEffect(() => {
     loadData();
-  }, [id]);
+  }, [id, filterState]);
 
   const loadData = async () => {
     try {
       const [projectData, episodesData] = await Promise.all([
         api.getProject(id),
-        api.getEpisodes(id)
+        api.getEpisodes(id, filterState ? { state: filterState } : {})
       ]);
       setProject(projectData);
       setEpisodes(episodesData);
@@ -31,6 +40,26 @@ export default function EpisodesPage() {
       console.error('Failed to load data:', err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const resetEpisode = async (episodeId, e) => {
+    e.stopPropagation();
+    try {
+      await api.resetEntity('episodes', episodeId);
+      await loadData();
+    } catch (err) {
+      alert('Reset failed: ' + err.message);
+    }
+  };
+
+  const unapproveEpisode = async (episodeId, e) => {
+    e.stopPropagation();
+    try {
+      await api.unapproveEpisode(episodeId);
+      await loadData();
+    } catch (err) {
+      alert('Unapprove failed: ' + err.message);
     }
   };
 
@@ -114,6 +143,8 @@ export default function EpisodesPage() {
           )}
         </div>
 
+        <StateFilterTabs states={EPISODE_STATES} activeState={filterState} onChange={setFilterState} />
+
         {generating && (
           <div className="generating-state">
             <div className="spinner large"></div>
@@ -135,6 +166,12 @@ export default function EpisodesPage() {
                 <div className="episode-meta">
                   <span className={`state-badge ${ep.state}`}>{ep.state}</span>
                   <span>{ep.scenes_count} scenes</span>
+                  {ep.state === 'generating' && (
+                    <button className="btn btn-sm btn-warning" onClick={(e) => resetEpisode(ep.id, e)}>Reset</button>
+                  )}
+                  {ep.state === 'approved' && (
+                    <button className="btn btn-sm btn-outline" onClick={(e) => unapproveEpisode(ep.id, e)}>Unapprove</button>
+                  )}
                 </div>
                 {ep.cliffhanger_moment && (
                   <p className="cliffhanger">{ep.cliffhanger_moment}</p>

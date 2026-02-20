@@ -88,6 +88,27 @@ export default function StructurePage() {
     }
   };
 
+  const unapproveCharacter = async (charId) => {
+    try {
+      await api.unapproveCharacter(charId);
+      setCharacters(characters.map(c => c.id === charId ? {...c, state: 'modified'} : c));
+    } catch (err) { alert('Unapprove failed: ' + err.message); }
+  };
+
+  const unapproveLocation = async (locId) => {
+    try {
+      await api.unapproveLocation(locId);
+      setLocations(locations.map(l => l.id === locId ? {...l, state: 'modified'} : l));
+    } catch (err) { alert('Unapprove failed: ' + err.message); }
+  };
+
+  const unapproveEpisodeSummary = async (epId) => {
+    try {
+      await api.unapproveEpisodeSummary(epId);
+      setEpisodeSummaries(episodeSummaries.map(e => e.id === epId ? {...e, state: 'modified'} : e));
+    } catch (err) { alert('Unapprove failed: ' + err.message); }
+  };
+
   const saveEdit = async () => {
     if (!editingItem) return;
     
@@ -270,12 +291,19 @@ export default function StructurePage() {
                           >
                             Edit
                           </button>
-                          {char.state !== 'approved' && (
-                            <button 
+                          {char.state !== 'approved' ? (
+                            <button
                               onClick={() => approveCharacter(char.id)}
                               className="btn btn-small btn-primary"
                             >
                               Approve
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => unapproveCharacter(char.id)}
+                              className="btn btn-small btn-outline"
+                            >
+                              Unapprove
                             </button>
                           )}
                         </div>
@@ -346,12 +374,19 @@ export default function StructurePage() {
                           >
                             Edit
                           </button>
-                          {loc.state !== 'approved' && (
-                            <button 
+                          {loc.state !== 'approved' ? (
+                            <button
                               onClick={() => approveLocation(loc.id)}
                               className="btn btn-small btn-primary"
                             >
                               Approve
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => unapproveLocation(loc.id)}
+                              className="btn btn-small btn-outline"
+                            >
+                              Unapprove
                             </button>
                           )}
                         </div>
@@ -427,12 +462,19 @@ export default function StructurePage() {
                           >
                             Edit
                           </button>
-                          {ep.state !== 'approved' && (
-                            <button 
+                          {ep.state !== 'approved' ? (
+                            <button
                               onClick={() => approveEpisodeSummary(ep.id)}
                               className="btn btn-small btn-primary"
                             >
                               Approve
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => unapproveEpisodeSummary(ep.id)}
+                              className="btn btn-small btn-outline"
+                            >
+                              Unapprove
                             </button>
                           )}
                         </div>

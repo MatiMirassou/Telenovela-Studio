@@ -1,7 +1,14 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import Layout from '../components/Layout';
+import StateFilterTabs from '../components/StateFilterTabs';
 import api from '../api/client';
+
+const PROMPT_STATES = [
+  { value: 'pending', label: 'Pending' },
+  { value: 'generated', label: 'Generated' },
+  { value: 'approved', label: 'Approved' },
+];
 
 export default function VideoPromptsPage() {
   const { id } = useParams();
@@ -10,14 +17,15 @@ export default function VideoPromptsPage() {
   const [prompts, setPrompts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
+  const [filterState, setFilterState] = useState(null);
 
-  useEffect(() => { loadData(); }, [id]);
+  useEffect(() => { loadData(); }, [id, filterState]);
 
   const loadData = async () => {
     try {
       const [proj, data] = await Promise.all([
         api.getProject(id),
-        api.getVideoPrompts(id)
+        api.getVideoPrompts(id, filterState ? { state: filterState } : {})
       ]);
       setProject(proj);
       setPrompts(data);
@@ -43,6 +51,8 @@ export default function VideoPromptsPage() {
           <h1>Step 11: Video Prompts</h1>
           <p>Generate prompts for video generation (Veo 2)</p>
         </div>
+
+        <StateFilterTabs states={PROMPT_STATES} activeState={filterState} onChange={setFilterState} />
 
         <div className="action-bar">
           <button onClick={generatePrompts} disabled={generating} className="btn btn-primary">

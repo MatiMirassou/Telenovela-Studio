@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+backend/venv/
+backend/.venv/
+
+# Environment (secrets should be injected at runtime)
+.env
+.env.local
+.env.production
+backend/.env
+
+# Database (fresh DB created on first run)
+*.db
+*.sqlite3
+
+# Frontend dev files (we build inside Docker)
+frontend/node_modules/
+frontend/dist/
+
+# Generated outputs (persistent volume in production)
+outputs/
+
+# Version control
+.git/
+.gitignore
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docs
+*.md
+LICENSE

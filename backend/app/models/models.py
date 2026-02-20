@@ -1,18 +1,20 @@
 """
 SQLAlchemy models for Telenovela Agent v2
-14 tables with state machines for object-centric architecture
+15 tables with state machines for object-centric architecture
 """
 
 from datetime import datetime
 from enum import Enum
 from typing import Optional, List
 from sqlalchemy import (
-    Column, String, Integer, Float, Text, DateTime, ForeignKey, 
+    Column, String, Integer, Float, Text, DateTime, ForeignKey,
     Enum as SQLEnum, JSON, create_engine
 )
 from sqlalchemy.orm import relationship, declarative_base, Session
 from sqlalchemy.dialects.sqlite import JSON as SQLiteJSON
 import uuid
+
+from app.models.mixins import StateMachineMixin
 
 Base = declarative_base()
 
@@ -139,7 +141,7 @@ class Project(Base):
         )
     
     def _check_step_11(self) -> bool:
-        # All images approved (or no images)
+        # All images must be reviewed (approved or rejected), at least one approved
         images = [
             p.generated_image
             for e in self.episodes
@@ -147,7 +149,14 @@ class Project(Base):
             for p in s.image_prompts
             if p.generated_image
         ]
-        return all(img.state == MediaState.APPROVED for img in images) if images else False
+        if not images:
+            return False
+        all_reviewed = all(
+            img.state in (MediaState.APPROVED, MediaState.REJECTED)
+            for img in images
+        )
+        has_approved = any(img.state == MediaState.APPROVED for img in images)
+        return all_reviewed and has_approved
     
     def _check_step_12(self) -> bool:
         return any(
@@ -162,9 +171,15 @@ class Project(Base):
 # IDEA (Step 1-2)
 # ============================================================================
 
-class Idea(Base):
+class Idea(StateMachineMixin, Base):
     __tablename__ = "ideas"
-    
+
+    VALID_TRANSITIONS = {
+        IdeaState.DRAFT: {IdeaState.APPROVED, IdeaState.REJECTED},
+        IdeaState.APPROVED: set(),
+        IdeaState.REJECTED: set(),
+    }
+
     id = Column(String, primary_key=True, default=generate_uuid)
     project_id = Column(String, ForeignKey("projects.id"), nullable=False)
     title = Column(String, nullable=False)
@@ -174,32 +189,33 @@ class Idea(Base):
     main_conflict = Column(Text)
     state = Column(SQLEnum(IdeaState), default=IdeaState.DRAFT)
     created_at = Column(DateTime, default=datetime.utcnow)
-    
+
     project = relationship("Project", back_populates="ideas")
-    
+
     def approve(self):
-        if self.state == IdeaState.DRAFT:
-            self.state = IdeaState.APPROVED
-            # Update project with selected idea info
-            self.project.title = self.title
-            self.project.setting = self.setting
-            return True
-        return False
-    
+        self.transition_to(IdeaState.APPROVED)
+        self.project.title = self.title
+        self.project.setting = self.setting
+        return True
+
     def reject(self):
-        if self.state == IdeaState.DRAFT:
-            self.state = IdeaState.REJECTED
-            return True
-        return False
+        self.transition_to(IdeaState.REJECTED)
+        return True
 
 
 # ============================================================================
 # STRUCTURE (Step 3-4): Characters, Locations, Episode Summaries
 # ============================================================================
 
-class Character(Base):
+class Character(StateMachineMixin, Base):
     __tablename__ = "characters"
-    
+
+    VALID_TRANSITIONS = {
+        StructureState.DRAFT: {StructureState.MODIFIED, StructureState.APPROVED},
+        StructureState.MODIFIED: {StructureState.APPROVED},
+        StructureState.APPROVED: {StructureState.MODIFIED},
+    }
+
     id = Column(String, primary_key=True, default=generate_uuid)
     project_id = Column(String, ForeignKey("projects.id"), nullable=False)
     name = Column(String, nullable=False)
@@ -213,22 +229,31 @@ class Character(Base):
     arc = Column(Text)
     state = Column(SQLEnum(StructureState), default=StructureState.DRAFT)
     created_at = Column(DateTime, default=datetime.utcnow)
-    
+
     project = relationship("Project", back_populates="characters")
     reference = relationship("CharacterRef", back_populates="character", uselist=False, cascade="all, delete-orphan")
     dialogue_lines = relationship("DialogueLine", back_populates="character")
-    
+
     def approve(self):
-        self.state = StructureState.APPROVED
-    
+        self.transition_to(StructureState.APPROVED)
+
     def modify(self):
         if self.state != StructureState.APPROVED:
-            self.state = StructureState.MODIFIED
+            self.transition_to(StructureState.MODIFIED)
+
+    def unapprove(self):
+        self.transition_to(StructureState.MODIFIED)
 
 
-class Location(Base):
+class Location(StateMachineMixin, Base):
     __tablename__ = "locations"
-    
+
+    VALID_TRANSITIONS = {
+        StructureState.DRAFT: {StructureState.MODIFIED, StructureState.APPROVED},
+        StructureState.MODIFIED: {StructureState.APPROVED},
+        StructureState.APPROVED: {StructureState.MODIFIED},
+    }
+
     id = Column(String, primary_key=True, default=generate_uuid)
     project_id = Column(String, ForeignKey("projects.id"), nullable=False)
     name = Column(String, nullable=False)
@@ -239,22 +264,31 @@ class Location(Base):
     visual_details = Column(Text)
     state = Column(SQLEnum(StructureState), default=StructureState.DRAFT)
     created_at = Column(DateTime, default=datetime.utcnow)
-    
+
     project = relationship("Project", back_populates="locations")
     reference = relationship("LocationRef", back_populates="location", uselist=False, cascade="all, delete-orphan")
     scenes = relationship("Scene", back_populates="location")
-    
+
     def approve(self):
-        self.state = StructureState.APPROVED
-    
+        self.transition_to(StructureState.APPROVED)
+
     def modify(self):
         if self.state != StructureState.APPROVED:
-            self.state = StructureState.MODIFIED
+            self.transition_to(StructureState.MODIFIED)
+
+    def unapprove(self):
+        self.transition_to(StructureState.MODIFIED)
 
 
-class EpisodeSummary(Base):
+class EpisodeSummary(StateMachineMixin, Base):
     __tablename__ = "episode_summaries"
-    
+
+    VALID_TRANSITIONS = {
+        StructureState.DRAFT: {StructureState.MODIFIED, StructureState.APPROVED},
+        StructureState.MODIFIED: {StructureState.APPROVED},
+        StructureState.APPROVED: {StructureState.MODIFIED},
+    }
+
     id = Column(String, primary_key=True, default=generate_uuid)
     project_id = Column(String, ForeignKey("projects.id"), nullable=False)
     episode_number = Column(Integer, nullable=False)
@@ -265,24 +299,34 @@ class EpisodeSummary(Base):
     emotional_arc = Column(String)
     state = Column(SQLEnum(StructureState), default=StructureState.DRAFT)
     created_at = Column(DateTime, default=datetime.utcnow)
-    
+
     project = relationship("Project", back_populates="episode_summaries")
-    
+
     def approve(self):
-        self.state = StructureState.APPROVED
-    
+        self.transition_to(StructureState.APPROVED)
+
     def modify(self):
         if self.state != StructureState.APPROVED:
-            self.state = StructureState.MODIFIED
+            self.transition_to(StructureState.MODIFIED)
+
+    def unapprove(self):
+        self.transition_to(StructureState.MODIFIED)
 
 
 # ============================================================================
 # EPISODES & SCENES (Step 5)
 # ============================================================================
 
-class Episode(Base):
+class Episode(StateMachineMixin, Base):
     __tablename__ = "episodes"
-    
+
+    VALID_TRANSITIONS = {
+        GenerationState.PENDING: {GenerationState.GENERATING},
+        GenerationState.GENERATING: {GenerationState.GENERATED, GenerationState.PENDING},
+        GenerationState.GENERATED: {GenerationState.APPROVED},
+        GenerationState.APPROVED: {GenerationState.GENERATED},
+    }
+
     id = Column(String, primary_key=True, default=generate_uuid)
     project_id = Column(String, ForeignKey("projects.id"), nullable=False)
     episode_number = Column(Integer, nullable=False)
@@ -292,19 +336,22 @@ class Episode(Base):
     cliffhanger_moment = Column(Text)
     state = Column(SQLEnum(GenerationState), default=GenerationState.PENDING)
     created_at = Column(DateTime, default=datetime.utcnow)
-    
+
     project = relationship("Project", back_populates="episodes")
     scenes = relationship("Scene", back_populates="episode", cascade="all, delete-orphan", order_by="Scene.scene_number")
     thumbnails = relationship("Thumbnail", back_populates="episode", cascade="all, delete-orphan")
-    
+
     def mark_generating(self):
-        self.state = GenerationState.GENERATING
-    
+        self.transition_to(GenerationState.GENERATING)
+
     def mark_generated(self):
-        self.state = GenerationState.GENERATED
-    
+        self.transition_to(GenerationState.GENERATED)
+
     def approve(self):
-        self.state = GenerationState.APPROVED
+        self.transition_to(GenerationState.APPROVED)
+
+    def unapprove(self):
+        self.transition_to(GenerationState.GENERATED)
 
 
 class Scene(Base):
@@ -350,9 +397,15 @@ class DialogueLine(Base):
 # IMAGE PROMPTS (Step 6)
 # ============================================================================
 
-class ImagePrompt(Base):
+class ImagePrompt(StateMachineMixin, Base):
     __tablename__ = "image_prompts"
-    
+
+    VALID_TRANSITIONS = {
+        PromptState.PENDING: {PromptState.GENERATED},
+        PromptState.GENERATED: {PromptState.APPROVED},
+        PromptState.APPROVED: {PromptState.GENERATED},
+    }
+
     id = Column(String, primary_key=True, default=generate_uuid)
     scene_id = Column(String, ForeignKey("scenes.id"), nullable=False)
     shot_number = Column(Integer, nullable=False)
@@ -362,24 +415,32 @@ class ImagePrompt(Base):
     negative_prompt = Column(Text)
     state = Column(SQLEnum(PromptState), default=PromptState.PENDING)
     created_at = Column(DateTime, default=datetime.utcnow)
-    
+
     scene = relationship("Scene", back_populates="image_prompts")
     generated_image = relationship("GeneratedImage", back_populates="image_prompt", uselist=False, cascade="all, delete-orphan")
-    
+
     def mark_generated(self):
-        self.state = PromptState.GENERATED
-    
+        self.transition_to(PromptState.GENERATED)
+
     def approve(self):
-        self.state = PromptState.APPROVED
+        self.transition_to(PromptState.APPROVED)
 
 
 # ============================================================================
 # REFERENCE IMAGES (Step 7)
 # ============================================================================
 
-class CharacterRef(Base):
+class CharacterRef(StateMachineMixin, Base):
     __tablename__ = "character_refs"
-    
+
+    VALID_TRANSITIONS = {
+        MediaState.PENDING: {MediaState.GENERATING},
+        MediaState.GENERATING: {MediaState.GENERATED, MediaState.PENDING},
+        MediaState.GENERATED: {MediaState.APPROVED, MediaState.REJECTED},
+        MediaState.APPROVED: {MediaState.REJECTED},
+        MediaState.REJECTED: {MediaState.PENDING},
+    }
+
     id = Column(String, primary_key=True, default=generate_uuid)
     character_id = Column(String, ForeignKey("characters.id"), nullable=False)
     prompt_text = Column(Text)
@@ -387,30 +448,38 @@ class CharacterRef(Base):
     image_url = Column(String)   # Or remote URL
     state = Column(SQLEnum(MediaState), default=MediaState.PENDING)
     created_at = Column(DateTime, default=datetime.utcnow)
-    
+
     character = relationship("Character", back_populates="reference")
-    
+
     def mark_generating(self):
-        self.state = MediaState.GENERATING
-    
+        self.transition_to(MediaState.GENERATING)
+
     def mark_generated(self, path: str):
         self.image_path = path
-        self.state = MediaState.GENERATED
-    
+        self.transition_to(MediaState.GENERATED)
+
     def approve(self):
-        self.state = MediaState.APPROVED
-    
+        self.transition_to(MediaState.APPROVED)
+
     def reject(self):
-        self.state = MediaState.REJECTED
-    
+        self.transition_to(MediaState.REJECTED)
+
     def reset_for_regen(self):
-        self.state = MediaState.PENDING
+        self.transition_to(MediaState.PENDING)
         self.image_path = None
 
 
-class LocationRef(Base):
+class LocationRef(StateMachineMixin, Base):
     __tablename__ = "location_refs"
-    
+
+    VALID_TRANSITIONS = {
+        MediaState.PENDING: {MediaState.GENERATING},
+        MediaState.GENERATING: {MediaState.GENERATED, MediaState.PENDING},
+        MediaState.GENERATED: {MediaState.APPROVED, MediaState.REJECTED},
+        MediaState.APPROVED: {MediaState.REJECTED},
+        MediaState.REJECTED: {MediaState.PENDING},
+    }
+
     id = Column(String, primary_key=True, default=generate_uuid)
     location_id = Column(String, ForeignKey("locations.id"), nullable=False)
     prompt_text = Column(Text)
@@ -418,24 +487,24 @@ class LocationRef(Base):
     image_url = Column(String)
     state = Column(SQLEnum(MediaState), default=MediaState.PENDING)
     created_at = Column(DateTime, default=datetime.utcnow)
-    
+
     location = relationship("Location", back_populates="reference")
-    
+
     def mark_generating(self):
-        self.state = MediaState.GENERATING
-    
+        self.transition_to(MediaState.GENERATING)
+
     def mark_generated(self, path: str):
         self.image_path = path
-        self.state = MediaState.GENERATED
-    
+        self.transition_to(MediaState.GENERATED)
+
     def approve(self):
-        self.state = MediaState.APPROVED
-    
+        self.transition_to(MediaState.APPROVED)
+
     def reject(self):
-        self.state = MediaState.REJECTED
-    
+        self.transition_to(MediaState.REJECTED)
+
     def reset_for_regen(self):
-        self.state = MediaState.PENDING
+        self.transition_to(MediaState.PENDING)
         self.image_path = None
 
 
@@ -443,33 +512,41 @@ class LocationRef(Base):
 # GENERATED IMAGES (Step 8)
 # ============================================================================
 
-class GeneratedImage(Base):
+class GeneratedImage(StateMachineMixin, Base):
     __tablename__ = "generated_images"
-    
+
+    VALID_TRANSITIONS = {
+        MediaState.PENDING: {MediaState.GENERATING},
+        MediaState.GENERATING: {MediaState.GENERATED, MediaState.PENDING},
+        MediaState.GENERATED: {MediaState.APPROVED, MediaState.REJECTED},
+        MediaState.APPROVED: {MediaState.REJECTED},
+        MediaState.REJECTED: {MediaState.PENDING},
+    }
+
     id = Column(String, primary_key=True, default=generate_uuid)
     image_prompt_id = Column(String, ForeignKey("image_prompts.id"), nullable=False)
     image_path = Column(String)
     image_url = Column(String)
     state = Column(SQLEnum(MediaState), default=MediaState.PENDING)
     created_at = Column(DateTime, default=datetime.utcnow)
-    
+
     image_prompt = relationship("ImagePrompt", back_populates="generated_image")
-    
+
     def mark_generating(self):
-        self.state = MediaState.GENERATING
-    
+        self.transition_to(MediaState.GENERATING)
+
     def mark_generated(self, path: str):
         self.image_path = path
-        self.state = MediaState.GENERATED
-    
+        self.transition_to(MediaState.GENERATED)
+
     def approve(self):
-        self.state = MediaState.APPROVED
-    
+        self.transition_to(MediaState.APPROVED)
+
     def reject(self):
-        self.state = MediaState.REJECTED
-    
+        self.transition_to(MediaState.REJECTED)
+
     def reset_for_regen(self):
-        self.state = MediaState.PENDING
+        self.transition_to(MediaState.PENDING)
         self.image_path = None
 
 
@@ -477,9 +554,17 @@ class GeneratedImage(Base):
 # THUMBNAILS (Step 9)
 # ============================================================================
 
-class Thumbnail(Base):
+class Thumbnail(StateMachineMixin, Base):
     __tablename__ = "thumbnails"
-    
+
+    VALID_TRANSITIONS = {
+        MediaState.PENDING: {MediaState.GENERATING},
+        MediaState.GENERATING: {MediaState.GENERATED, MediaState.PENDING},
+        MediaState.GENERATED: {MediaState.APPROVED, MediaState.REJECTED},
+        MediaState.APPROVED: {MediaState.REJECTED},
+        MediaState.REJECTED: {MediaState.PENDING},
+    }
+
     id = Column(String, primary_key=True, default=generate_uuid)
     project_id = Column(String, ForeignKey("projects.id"), nullable=False)
     episode_id = Column(String, ForeignKey("episodes.id"), nullable=True)
@@ -489,25 +574,25 @@ class Thumbnail(Base):
     image_url = Column(String)
     state = Column(SQLEnum(MediaState), default=MediaState.PENDING)
     created_at = Column(DateTime, default=datetime.utcnow)
-    
+
     project = relationship("Project", back_populates="thumbnails")
     episode = relationship("Episode", back_populates="thumbnails")
-    
+
     def mark_generating(self):
-        self.state = MediaState.GENERATING
-    
+        self.transition_to(MediaState.GENERATING)
+
     def mark_generated(self, path: str):
         self.image_path = path
-        self.state = MediaState.GENERATED
-    
+        self.transition_to(MediaState.GENERATED)
+
     def approve(self):
-        self.state = MediaState.APPROVED
-    
+        self.transition_to(MediaState.APPROVED)
+
     def reject(self):
-        self.state = MediaState.REJECTED
-    
+        self.transition_to(MediaState.REJECTED)
+
     def reset_for_regen(self):
-        self.state = MediaState.PENDING
+        self.transition_to(MediaState.PENDING)
         self.image_path = None
 
 
@@ -515,9 +600,15 @@ class Thumbnail(Base):
 # VIDEO PROMPTS (Step 11)
 # ============================================================================
 
-class VideoPrompt(Base):
+class VideoPrompt(StateMachineMixin, Base):
     __tablename__ = "video_prompts"
-    
+
+    VALID_TRANSITIONS = {
+        PromptState.PENDING: {PromptState.GENERATED},
+        PromptState.GENERATED: {PromptState.APPROVED},
+        PromptState.APPROVED: {PromptState.GENERATED},
+    }
+
     id = Column(String, primary_key=True, default=generate_uuid)
     scene_id = Column(String, ForeignKey("scenes.id"), nullable=False)
     segment_number = Column(Integer, default=1)
@@ -527,24 +618,32 @@ class VideoPrompt(Base):
     reference_image_id = Column(String)  # ID of GeneratedImage to use as reference
     state = Column(SQLEnum(PromptState), default=PromptState.PENDING)
     created_at = Column(DateTime, default=datetime.utcnow)
-    
+
     scene = relationship("Scene", back_populates="video_prompts")
     generated_video = relationship("GeneratedVideo", back_populates="video_prompt", uselist=False, cascade="all, delete-orphan")
-    
+
     def mark_generated(self):
-        self.state = PromptState.GENERATED
-    
+        self.transition_to(PromptState.GENERATED)
+
     def approve(self):
-        self.state = PromptState.APPROVED
+        self.transition_to(PromptState.APPROVED)
 
 
 # ============================================================================
 # GENERATED VIDEOS (Step 12)
 # ============================================================================
 
-class GeneratedVideo(Base):
+class GeneratedVideo(StateMachineMixin, Base):
     __tablename__ = "generated_videos"
-    
+
+    VALID_TRANSITIONS = {
+        MediaState.PENDING: {MediaState.GENERATING},
+        MediaState.GENERATING: {MediaState.GENERATED, MediaState.PENDING},
+        MediaState.GENERATED: {MediaState.APPROVED, MediaState.REJECTED},
+        MediaState.APPROVED: {MediaState.REJECTED},
+        MediaState.REJECTED: {MediaState.PENDING},
+    }
+
     id = Column(String, primary_key=True, default=generate_uuid)
     video_prompt_id = Column(String, ForeignKey("video_prompts.id"), nullable=False)
     video_path = Column(String)
@@ -552,27 +651,40 @@ class GeneratedVideo(Base):
     duration_seconds = Column(Float)
     state = Column(SQLEnum(MediaState), default=MediaState.PENDING)
     created_at = Column(DateTime, default=datetime.utcnow)
-    
+
     video_prompt = relationship("VideoPrompt", back_populates="generated_video")
-    
+
     def mark_generating(self):
-        self.state = MediaState.GENERATING
-    
+        self.transition_to(MediaState.GENERATING)
+
     def mark_generated(self, path: str, duration: float = None):
         self.video_path = path
         if duration:
             self.duration_seconds = duration
-        self.state = MediaState.GENERATED
-    
+        self.transition_to(MediaState.GENERATED)
+
     def approve(self):
-        self.state = MediaState.APPROVED
-    
+        self.transition_to(MediaState.APPROVED)
+
     def reject(self):
-        self.state = MediaState.REJECTED
-    
+        self.transition_to(MediaState.REJECTED)
+
     def reset_for_regen(self):
-        self.state = MediaState.PENDING
+        self.transition_to(MediaState.PENDING)
         self.video_path = None
+
+
+# ============================================================================
+# APP SETTINGS (key-value store for config like API keys)
+# ============================================================================
+
+class AppSetting(Base):
+    """Persistent key-value settings store"""
+    __tablename__ = "app_settings"
+
+    key = Column(String, primary_key=True)
+    value = Column(Text, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 # ============================================================================

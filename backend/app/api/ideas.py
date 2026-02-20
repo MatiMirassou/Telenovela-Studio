@@ -2,7 +2,7 @@
 Ideas API routes (Step 1-2)
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 from typing import List, Optional
 
@@ -11,6 +11,7 @@ from app.models.models import Project, Idea, IdeaState
 from app.models.schemas import IdeaResponse, GenerateIdeasRequest, CustomOutlineRequest
 from app.services.generator import generator
 from app.api import parse_state_filter
+from app.middleware.rate_limit import limiter, AI_GENERATION_LIMIT
 
 router = APIRouter(prefix="/projects/{project_id}/ideas", tags=["ideas"])
 
@@ -28,9 +29,11 @@ def list_ideas(project_id: str, state: Optional[str] = Query(None), db: Session 
 
 
 @router.post("/generate", response_model=List[IdeaResponse])
+@limiter.limit(AI_GENERATION_LIMIT)
 async def generate_ideas(
+    request: Request,
     project_id: str,
-    request: GenerateIdeasRequest = None,
+    body: GenerateIdeasRequest = None,
     db: Session = Depends(get_db)
 ):
     """Generate 3 new ideas for a project (Step 1)"""
@@ -43,7 +46,7 @@ async def generate_ideas(
         db.delete(idea)
     
     # Generate new ideas
-    setting_hint = request.setting_hint if request else None
+    setting_hint = body.setting_hint if body else None
     ideas_data = await generator.generate_ideas(setting_hint)
     
     ideas = []
