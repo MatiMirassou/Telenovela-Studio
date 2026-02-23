@@ -1,17 +1,9 @@
 import { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import Dashboard from './pages/Dashboard';
-import ProjectPage from './pages/ProjectPage';
-import IdeasPage from './pages/IdeasPage';
-import StructurePage from './pages/StructurePage';
-import EpisodesPage from './pages/EpisodesPage';
-import ImagePromptsPage from './pages/ImagePromptsPage';
-import ReferencesPage from './pages/ReferencesPage';
-import ImagesPage from './pages/ImagesPage';
-import ReviewPage from './pages/ReviewPage';
-import VideoPromptsPage from './pages/VideoPromptsPage';
-import VideosPage from './pages/VideosPage';
-import ExportPage from './pages/ExportPage';
+import IdeaTab from './pages/IdeaTab';
+import StructureTab from './pages/StructureTab';
+import ProductionTab from './pages/ProductionTab';
 import PipelinePage from './pages/PipelinePage';
 import ErrorBoundary from './components/ErrorBoundary';
 import LoginPage from './components/LoginPage';
@@ -84,24 +76,25 @@ function App() {
         <ErrorBoundary>
           <Routes>
             <Route path="/" element={<Dashboard />} />
-            <Route path="/projects/:id" element={<ProjectPage />} />
-            <Route path="/projects/:id/ideas" element={<IdeasPage />} />
-            <Route path="/projects/:id/structure" element={<StructurePage />} />
-            <Route path="/projects/:id/episodes" element={<EpisodesPage />} />
-            <Route path="/projects/:id/image-prompts" element={<ImagePromptsPage />} />
-            <Route path="/projects/:id/references" element={<ReferencesPage />} />
-            <Route path="/projects/:id/images" element={<ImagesPage />} />
-            <Route path="/projects/:id/review" element={<ReviewPage />} />
-            <Route path="/projects/:id/video-prompts" element={<VideoPromptsPage />} />
-            <Route path="/projects/:id/videos" element={<VideosPage />} />
-            <Route path="/projects/:id/export" element={<ExportPage />} />
+            {/* 3-tab project routes */}
+            <Route path="/projects/:id/idea" element={<IdeaTab />} />
+            <Route path="/projects/:id/structure" element={<StructureTab />} />
+            <Route path="/projects/:id/production" element={<ProductionTab />} />
             <Route path="/projects/:id/pipeline" element={<PipelinePage />} />
+            {/* Redirect old routes and /projects/:id to idea tab */}
+            <Route path="/projects/:id" element={<RedirectToIdea />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </ErrorBoundary>
       </div>
     </BrowserRouter>
   );
+}
+
+/** Redirect /projects/:id to /projects/:id/idea */
+function RedirectToIdea() {
+  const id = window.location.pathname.split('/')[2];
+  return <Navigate to={`/projects/${id}/idea`} replace />;
 }
 
 export default App;

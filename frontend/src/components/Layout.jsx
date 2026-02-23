@@ -1,17 +1,18 @@
 import { useState, useEffect } from 'react';
 import { Link, useParams, useLocation } from 'react-router-dom';
 import api from '../api/client';
-import { STEPS, getBadgeCount } from '../utils/steps';
+import { TABS, getTabBadgeCount } from '../utils/steps';
 import SettingsModal from './SettingsModal';
 
-export default function Layout({ children, project, currentStep }) {
+export default function Layout({ children, project }) {
   const { id } = useParams();
   const location = useLocation();
   const [pipeline, setPipeline] = useState(null);
   const [showSettings, setShowSettings] = useState(false);
   const [apiKeyConfigured, setApiKeyConfigured] = useState(null);
 
-  const step = currentStep || project?.current_step || 1;
+  // Determine active tab from current URL path
+  const currentPath = location.pathname.split('/').pop();
 
   // Fetch pipeline data for badge counts
   useEffect(() => {
@@ -25,7 +26,7 @@ export default function Layout({ children, project, currentStep }) {
     api.getApiKeyStatus()
       .then((data) => setApiKeyConfigured(data.configured))
       .catch(() => setApiKeyConfigured(null));
-  }, [showSettings]); // Re-check when settings modal closes
+  }, [showSettings]);
 
   return (
     <div className="layout">
@@ -49,35 +50,47 @@ export default function Layout({ children, project, currentStep }) {
       </header>
 
       {project && (
-        <nav className="step-nav">
-          <Link
-            to={`/projects/${id}/pipeline`}
-            className={`step-link pipeline-link ${location.pathname.endsWith('/pipeline') ? 'active' : ''}`}
-          >
-            <span className="step-name">Pipeline</span>
-          </Link>
-          {STEPS.map((s) => {
-            const badge = getBadgeCount(s.num, pipeline);
-            return (
-              <Link
-                key={s.num}
-                to={`/projects/${id}/${s.path}`}
-                className={`step-link ${s.num === step ? 'active' : ''} ${s.num < step ? 'completed' : ''}`}
-              >
-                <span className="step-num">{s.num}</span>
-                <span className="step-name">{s.name}</span>
-                {badge > 0 && (
-                  <span className="step-badge-count">{badge}</span>
-                )}
-              </Link>
-            );
-          })}
-        </nav>
+        <div className="layout-body">
+          <nav className="sidebar">
+            <Link
+              to={`/projects/${id}/pipeline`}
+              className={`sidebar-link pipeline-link ${currentPath === 'pipeline' ? 'active' : ''}`}
+            >
+              <span className="sidebar-icon">📊</span>
+              <span className="sidebar-label">Pipeline</span>
+            </Link>
+
+            <div className="sidebar-divider" />
+
+            {TABS.map((tab) => {
+              const badge = getTabBadgeCount(tab.key, pipeline);
+              return (
+                <Link
+                  key={tab.key}
+                  to={`/projects/${id}/${tab.path}`}
+                  className={`sidebar-link ${currentPath === tab.path ? 'active' : ''}`}
+                >
+                  <span className="sidebar-icon">{tab.icon}</span>
+                  <span className="sidebar-label">{tab.label}</span>
+                  {badge > 0 && (
+                    <span className="sidebar-badge">{badge}</span>
+                  )}
+                </Link>
+              );
+            })}
+          </nav>
+
+          <main className="main-content">
+            {children}
+          </main>
+        </div>
       )}
 
-      <main className="main-content">
-        {children}
-      </main>
+      {!project && (
+        <main className="main-content">
+          {children}
+        </main>
+      )}
 
       {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
     </div>

@@ -209,43 +209,82 @@ body {
   flex-wrap: wrap;
 }
 
-/* Step Navigation */
-.step-nav {
-  display: flex;
-  overflow-x: auto;
-  background: var(--bg-card);
-  border-bottom: 1px solid var(--border);
-  padding: 0 1rem;
+/* Sidebar + Main Body Layout */
+.layout-body {
+  display: grid;
+  grid-template-columns: 200px 1fr;
+  flex: 1;
+  min-height: 0;
 }
 
-.step-link {
+.sidebar {
+  background: var(--bg-card);
+  border-right: 1px solid var(--border);
+  padding: 1rem 0;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  padding: 0.75rem 1rem;
-  text-decoration: none;
-  color: var(--text-muted);
-  border-bottom: 3px solid transparent;
-  transition: all 0.2s;
-  min-width: 80px;
+  gap: 0.25rem;
+  position: sticky;
+  top: 0;
+  height: calc(100vh - 60px);
+  overflow-y: auto;
 }
 
-.step-link:hover {
+.sidebar-link {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1.25rem;
+  text-decoration: none;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  font-weight: 500;
+  transition: all 0.15s;
+  border-left: 3px solid transparent;
+}
+
+.sidebar-link:hover {
   color: var(--text);
   background: var(--bg-hover);
 }
 
-.step-link.active {
+.sidebar-link.active {
   color: var(--primary);
-  border-bottom-color: var(--primary);
+  background: rgba(225, 29, 72, 0.1);
+  border-left-color: var(--primary);
 }
 
-.step-link.completed {
-  color: var(--success);
+.sidebar-icon {
+  font-size: 1.1rem;
+  width: 24px;
+  text-align: center;
 }
 
-/* disabled class removed — all steps always navigable */
+.sidebar-label {
+  flex: 1;
+}
 
+.sidebar-badge {
+  background: var(--warning);
+  color: #000;
+  font-size: 0.7rem;
+  font-weight: 700;
+  min-width: 20px;
+  height: 20px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 5px;
+}
+
+.sidebar-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 0.5rem 1rem;
+}
+
+/* Legacy step classes (kept for pipeline page) */
 .step-num {
   font-size: 0.75rem;
   font-weight: bold;
@@ -307,8 +346,8 @@ body {
   flex: 1;
   padding: 2rem;
   max-width: 1400px;
-  margin: 0 auto;
   width: 100%;
+  overflow-y: auto;
 }
 
 /* Page Styles */
@@ -1055,7 +1094,7 @@ body {
 .next-step-bar {
   position: fixed;
   bottom: 0;
-  left: 0;
+  left: 200px;
   right: 0;
   background: var(--bg-card);
   border-top: 1px solid var(--border);

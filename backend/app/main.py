@@ -36,7 +36,10 @@ app = FastAPI(
 # MIDDLEWARE (order matters: CORS first, then auth, then rate limiting)
 # ============================================================================
 
-# CORS configuration - read from environment or use defaults for dev
+# Auth middleware (only active if APP_PASSWORD env var is set) — added first so it's INNER
+app.add_middleware(AuthMiddleware)
+
+# CORS configuration — added LAST so it's OUTERMOST (processes requests first)
 cors_origins_str = os.getenv("CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173")
 cors_origins = [origin.strip() for origin in cors_origins_str.split(",") if origin.strip()]
 
@@ -47,9 +50,6 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
-
-# Auth middleware (only active if APP_PASSWORD env var is set)
-app.add_middleware(AuthMiddleware)
 
 # Rate limiting
 app.state.limiter = limiter

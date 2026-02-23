@@ -1,7 +1,8 @@
 /**
- * Shared step definitions for the 12-step pipeline
+ * Shared step definitions for the 12-step pipeline + 3-tab UI mapping
  */
 
+// Original 12-step pipeline (used by pipeline page + badge counts)
 export const STEPS = [
   { num: 1, name: 'Ideas', path: 'ideas' },
   { num: 2, name: 'Select', path: 'ideas' },
@@ -32,12 +33,30 @@ export const STEP_NAMES = {
   12: 'Generate Videos',
 };
 
+// 3-tab UI mapping: backend steps → frontend tabs
+export const TABS = [
+  { key: 'idea', label: 'Idea', icon: '💡', steps: [1, 2], path: 'idea' },
+  { key: 'structure', label: 'Structure', icon: '🏗️', steps: [3, 4], path: 'structure' },
+  { key: 'production', label: 'Production', icon: '🎬', steps: [5, 6, 7, 8, 9, 10, 11, 12], path: 'production' },
+];
+
 /**
- * Get the route path for a given step number
+ * Get the 3-tab route path for a given backend step number.
+ * Steps 1-2 → idea, 3-4 → structure, 5+ → production
  */
 export function getStepPath(step) {
-  const entry = STEPS.find((s) => s.num === step);
-  return entry ? entry.path : 'ideas';
+  if (step <= 2) return 'idea';
+  if (step <= 4) return 'structure';
+  return 'production';
+}
+
+/**
+ * Get which tab key is active for a given backend step
+ */
+export function getActiveTab(step) {
+  if (step <= 2) return 'idea';
+  if (step <= 4) return 'structure';
+  return 'production';
 }
 
 /**
@@ -86,4 +105,14 @@ export function getBadgeCount(stepNum, pipeline) {
   if (!entity) return 0;
 
   return config.states.reduce((sum, s) => sum + (entity.counts[s] || 0), 0);
+}
+
+/**
+ * Get aggregated badge count for a tab from pipeline data.
+ */
+export function getTabBadgeCount(tabKey, pipeline) {
+  if (!pipeline) return 0;
+  const tab = TABS.find(t => t.key === tabKey);
+  if (!tab) return 0;
+  return tab.steps.reduce((sum, stepNum) => sum + getBadgeCount(stepNum, pipeline), 0);
 }
