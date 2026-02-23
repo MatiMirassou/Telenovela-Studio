@@ -3,7 +3,7 @@
  * Uses VITE_API_URL env var in dev, falls back to same-origin in production
  */
 
-const API_BASE = import.meta.env.VITE_API_URL || '';
+export const API_BASE = import.meta.env.VITE_API_URL || '';
 
 class ApiClient {
   async request(endpoint, options = {}) {
