@@ -26,7 +26,8 @@
       "Bash(npm run build:*)",
       "Bash(docker --version:*)",
       "Bash(docker build:*)",
-      "Bash(npx:*)"
+      "Bash(npx:*)",
+      "Bash(git remote add:*)"
     ]
   }
 }
