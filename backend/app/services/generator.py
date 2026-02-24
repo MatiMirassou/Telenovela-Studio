@@ -32,9 +32,16 @@ logger = logging.getLogger(__name__)
 # Outputs directory (relative to backend/)
 OUTPUTS_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "outputs")
 
-# HARDCORE SETTINGS
+# STYLE PRESETS
+IMAGE_STYLES = {
+    "drama": "hyper-stylized drama, bold saturated colors, high contrast lighting, graphic novel aesthetic, cinematic poster quality, sharp details",
+    "anime": "anime dramatic scene, cinematic lighting, high detail, vibrant colors, expressive character design",
+}
+DEFAULT_IMAGE_STYLE = "drama"
 
-IMAGE_STYLE = "anime dramatic scene, cinematic lighting, high detail"
+def get_image_style(style_key: str = None) -> str:
+    """Get the IMAGE_STYLE string for a given style key."""
+    return IMAGE_STYLES.get(style_key or DEFAULT_IMAGE_STYLE, IMAGE_STYLES[DEFAULT_IMAGE_STYLE])
 
 # Ensure subdirectories exist
 for subdir in ["images", "refs", "thumbnails", "videos"]:
@@ -111,44 +118,79 @@ class GeminiGenerator:
     # =========================================================================
 
     async def generate_image(self, prompt_text: str, save_path: str,
-                              aspect_ratio: str = "16:9") -> str:
-        """Generate an image using Gemini 3 Pro and save to disk.
+                              aspect_ratio: str = "16:9",
+                              style: str = None) -> str:
+        """Generate an image and save to disk.
+
+        Uses generate_content for Gemini models (gemini-*) and
+        generate_images for Imagen models (imagen-*).
 
         Args:
             prompt_text: The image generation prompt
             save_path: Full path where the image should be saved
             aspect_ratio: Aspect ratio (e.g., "16:9", "9:16", "3:4", "1:1")
+            style: Style preset key ("drama" or "anime"). Defaults to DEFAULT_IMAGE_STYLE.
 
         Returns:
             The save_path where the image was written
         """
-        full_prompt = f"{prompt_text}. Style: {IMAGE_STYLE}"
-        logger.info(f"Generating image with {self.image_model} (aspect: {aspect_ratio})")
-        response = await asyncio.to_thread(
-            self.client.models.generate_images,
-            model=self.image_model,
-            prompt=full_prompt,
-            config=types.GenerateImagesConfig(
-                number_of_images=1,
-                aspect_ratio=aspect_ratio,
-            )
+        style_str = get_image_style(style)
+        full_prompt = (
+            f"{prompt_text}. Style: {style_str}. "
+            "IMPORTANT: Do not include any text, letters, numbers, words, labels, "
+            "watermarks, signatures, or writing of any kind in the image."
         )
+        logger.info(f"Generating image with {self.image_model} (aspect: {aspect_ratio})")
+        os.makedirs(os.path.dirname(save_path), exist_ok=True)
 
-        if response.generated_images and len(response.generated_images) > 0:
-            image = response.generated_images[0].image
-            os.makedirs(os.path.dirname(save_path), exist_ok=True)
+        if self.image_model.startswith("gemini"):
+            # Gemini models use generate_content with IMAGE response modality
+            # Aspect ratio is specified in the prompt since the API doesn't have a param
+            content_prompt = f"{full_prompt}. Aspect ratio: {aspect_ratio}"
+            response = await asyncio.to_thread(
+                self.client.models.generate_content,
+                model=self.image_model,
+                contents=content_prompt,
+                config=types.GenerateContentConfig(
+                    response_modalities=["IMAGE", "TEXT"],
+                )
+            )
 
-            image_bytes = image.image_bytes
-            if isinstance(image_bytes, str):
-                image_bytes = base64.b64decode(image_bytes)
+            # Extract image from response parts
+            for part in response.candidates[0].content.parts:
+                if part.inline_data and part.inline_data.data:
+                    image_bytes = part.inline_data.data
+                    if isinstance(image_bytes, str):
+                        image_bytes = base64.b64decode(image_bytes)
+                    with open(save_path, "wb") as f:
+                        f.write(image_bytes)
+                    logger.info(f"Image saved to {save_path}")
+                    return save_path
 
-            with open(save_path, "wb") as f:
-                f.write(image_bytes)
+            raise ValueError("No image data in Gemini response")
+        else:
+            # Imagen models use the dedicated generate_images endpoint
+            response = await asyncio.to_thread(
+                self.client.models.generate_images,
+                model=self.image_model,
+                prompt=full_prompt,
+                config=types.GenerateImagesConfig(
+                    number_of_images=1,
+                    aspect_ratio=aspect_ratio,
+                )
+            )
 
-            logger.info(f"Image saved to {save_path}")
-            return save_path
+            if response.generated_images and len(response.generated_images) > 0:
+                image = response.generated_images[0].image
+                image_bytes = image.image_bytes
+                if isinstance(image_bytes, str):
+                    image_bytes = base64.b64decode(image_bytes)
+                with open(save_path, "wb") as f:
+                    f.write(image_bytes)
+                logger.info(f"Image saved to {save_path}")
+                return save_path
 
-        raise ValueError("No image data in response")
+            raise ValueError("No image data in Imagen response")
 
     # =========================================================================
     # VIDEO GENERATION (Veo 3.1)
@@ -585,10 +627,11 @@ RESPOND ONLY WITH VALID JSON, NO MARKDOWN."""
 
     async def generate_episode_image_prompts(self, episode_title: str,
                                                scenes: List[Dict],
-                                               characters: List[Dict]) -> List[Dict]:
+                                               characters: List[Dict],
+                                               style: str = None) -> List[Dict]:
         """Generate image prompts for ALL scenes in an episode in one AI call"""
         char_looks = {c.get('name', ''): c.get('physical_description', '') for c in characters}
-        style = IMAGE_STYLE
+        style_str = get_image_style(style)
 
         # Build scene descriptions
         scene_blocks = []
@@ -612,13 +655,15 @@ CHARACTER APPEARANCES:
 
 {scenes_text}
 
+VISUAL STYLE: {style_str}
+
 For EACH scene above, create 4-6 key shots. Each prompt should:
-- Shot sequence tells a visual story: establish -> action -> reaction -> peak
-- Dont detail too much the characters, a reference will be included
-- Include character appearances if they're in shot
-- Specify lighting, camera angle, mood
-- Use cinematic language
-- Make sure to add at the end of each prompt_text: "cinematic movie frame/shot, vertical 9 by 16, {style}"
+- Shot sequence tells a visual story: establish -> action -> reaction -> peak moment
+- Include character appearances (face, hair, clothing) if they're in the shot
+- Specify dramatic lighting, camera angle, and mood
+- Use cinematic language — describe it like a movie frame
+- Every prompt must end with: "{style_str}, vertical 9:16"
+- NO text, NO watermarks, NO labels in the images
 
 Return ONLY valid JSON — an array of scene objects, each containing its shots:
 [
@@ -629,7 +674,7 @@ Return ONLY valid JSON — an array of scene objects, each containing its shots:
         "shot_number": 1,
         "shot_type": "wide/medium/close-up/extreme close-up",
         "description": "What this shot shows",
-        "prompt_text": "Full detailed prompt for image generation including style, lighting, camera angle, characters' appearances, setting details, mood. cinematic movie frame/shot, vertical 9 by 16, {style}",
+        "prompt_text": "Full detailed prompt describing characters, action, environment, lighting, mood, camera angle. {style_str}, vertical 9:16",
         "negative_prompt": "Things to avoid in the image"
       }}
     ]
@@ -644,29 +689,74 @@ RESPOND ONLY WITH JSON, NO MARKDOWN, NO EXTRA TEXT."""
     # STEP 7: Generate Reference Image Prompts
     # =========================================================================
 
-    async def generate_character_ref_prompt(self, character: Dict) -> str:
+    async def generate_character_ref_prompt(self, character: Dict, style: str = None) -> str:
         """Generate prompt for character reference image"""
-        prompt = f"""Create an image generation prompt for a character reference sheet.
+        style_key = style or DEFAULT_IMAGE_STYLE
+
+        if style_key == "anime":
+            style_block = """STYLE REQUIREMENTS — Anime/manga aesthetic:
+- Portrait shot: head and upper torso, slightly off-center composition
+- High-quality anime art style with cinematic dramatic lighting
+- Vibrant colors, expressive character design with detailed eyes and hair
+- Dramatic rim lighting, vivid highlights
+- Clean linework with detailed shading
+- Atmospheric background (NOT plain white) — moody gradient or soft bokeh
+- The character should feel like an anime key visual — striking, expressive
+- NO text, NO labels, NO watermarks, NO multiple views"""
+        else:
+            style_block = """STYLE REQUIREMENTS — Hyper-stylized drama (ReelShort/ShortMax style):
+- Portrait shot: head and upper torso, slightly off-center composition
+- Hyper-stylized dramatic illustration, like a graphic novel cover or drama poster
+- Bold, saturated color palette with high contrast lighting (deep shadows, vivid highlights)
+- Expressive face that conveys the character's core personality (e.g., dangerous smirk, fierce determination, vulnerable beauty)
+- Dramatic rim lighting or chiaroscuro effect
+- Painterly texture with sharp details on face and clothing
+- Solid dark or moody atmospheric background (NOT plain white)
+- The character should feel like a drama poster — magnetic, larger-than-life
+- NO text, NO labels, NO watermarks, NO multiple views"""
+
+        prompt = f"""Create an image generation prompt for a character portrait.
 
 CHARACTER: {character.get('name', 'Unknown')}
 APPEARANCE: {character.get('physical_description', '')}
 PERSONALITY: {character.get('personality', '')}
 ROLE: {character.get('role', '')}
+{style_block}
+- NO text, NO watermarks, NO labels in the images
 
-Create a detailed prompt for generating a reference image showing:
-- Clear face/portrait view
-- Consistent with telenovela/drama aesthetic
-- Professional, cinematic quality
-- Suitable for use as reference in other scenes
+Write ONE single detailed image generation prompt. Describe the character's exact appearance, expression, lighting, color mood, and composition.
 
 Return ONLY the prompt text, nothing else."""
 
         response = await self.generate(prompt)
         return response.strip()
 
-    async def generate_location_ref_prompt(self, location: Dict) -> str:
+    async def generate_location_ref_prompt(self, location: Dict, style: str = None) -> str:
         """Generate prompt for location reference image"""
-        prompt = f"""Create an image generation prompt for a location reference.
+        style_key = style or DEFAULT_IMAGE_STYLE
+
+        if style_key == "anime":
+            style_block = f"""STYLE REQUIREMENTS — Anime/manga aesthetic:
+- Wide or medium establishing shot showing the full space
+- High-quality anime background art style with cinematic lighting
+- Vibrant colors, detailed environment painting (like Studio Ghibli or Makoto Shinkai backgrounds)
+- Dramatic atmosphere with mood-appropriate color grading
+- Clean detailed architectural/environmental elements
+- Empty scene — absolutely NO people, NO characters, NO figures
+- The location should feel cinematic, matching the mood: {location.get('mood', 'dramatic')}
+- NO text, NO labels, NO watermarks"""
+        else:
+            style_block = f"""STYLE REQUIREMENTS — Hyper-stylized drama (ReelShort/ShortMax style):
+- Wide or medium establishing shot showing the full space
+- Hyper-stylized dramatic illustration, like a graphic novel panel or movie concept art
+- Bold, saturated color palette with high contrast lighting
+- Dramatic atmosphere: volumetric light, deep shadows, mood-appropriate color grading
+- Painterly texture with sharp architectural/environmental details
+- Empty scene — absolutely NO people, NO characters, NO figures
+- The location should feel cinematic and emotionally charged, matching the mood: {location.get('mood', 'dramatic')}
+- NO text, NO labels, NO watermarks"""
+
+        prompt = f"""Create an image generation prompt for a location establishing shot.
 
 LOCATION: {location.get('name', 'Unknown')}
 TYPE: {location.get('type', 'interior')}
@@ -674,11 +764,9 @@ DESCRIPTION: {location.get('description', '')}
 VISUAL DETAILS: {location.get('visual_details', '')}
 MOOD: {location.get('mood', '')}
 
-Create a detailed prompt for generating a reference image showing:
-- Establishing shot of the location
-- Rich visual detail
-- Cinematic quality suitable for drama
-- Clear sense of space and atmosphere
+{style_block}
+
+Write ONE single detailed image generation prompt. Describe the space, architecture, lighting, color mood, atmosphere, and key visual elements.
 
 Return ONLY the prompt text, nothing else."""
 

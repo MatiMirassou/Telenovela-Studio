@@ -70,6 +70,7 @@ class Project(Base):
     title = Column(String, nullable=True)
     setting = Column(Text, nullable=True)
     num_episodes = Column(Integer, default=20)
+    image_style = Column(String, default="drama")  # "drama" or "anime"
     current_step = Column(Integer, default=1)  # 1-12
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

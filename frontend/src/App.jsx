@@ -3,10 +3,13 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import Dashboard from './pages/Dashboard';
 import IdeaTab from './pages/IdeaTab';
 import StructureTab from './pages/StructureTab';
-import ProductionTab from './pages/ProductionTab';
+import ProductionHome from './pages/ProductionHome';
+import EpisodePage from './pages/EpisodePage';
 import PipelinePage from './pages/PipelinePage';
 import ErrorBoundary from './components/ErrorBoundary';
 import LoginPage from './components/LoginPage';
+import GenerationOverlay from './components/GenerationOverlay';
+import { GenerationProvider } from './context/GenerationContext';
 import api from './api/client';
 import './App.css';
 
@@ -72,21 +75,25 @@ function App() {
 
   return (
     <BrowserRouter>
-      <div className="app">
-        <ErrorBoundary>
-          <Routes>
-            <Route path="/" element={<Dashboard />} />
-            {/* 3-tab project routes */}
-            <Route path="/projects/:id/idea" element={<IdeaTab />} />
-            <Route path="/projects/:id/structure" element={<StructureTab />} />
-            <Route path="/projects/:id/production" element={<ProductionTab />} />
-            <Route path="/projects/:id/pipeline" element={<PipelinePage />} />
-            {/* Redirect old routes and /projects/:id to idea tab */}
-            <Route path="/projects/:id" element={<RedirectToIdea />} />
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
-        </ErrorBoundary>
-      </div>
+      <GenerationProvider>
+        <div className="app">
+          <GenerationOverlay />
+          <ErrorBoundary>
+            <Routes>
+              <Route path="/" element={<Dashboard />} />
+              {/* 3-tab project routes */}
+              <Route path="/projects/:id/idea" element={<IdeaTab />} />
+              <Route path="/projects/:id/structure" element={<StructureTab />} />
+              <Route path="/projects/:id/production" element={<ProductionHome />} />
+              <Route path="/projects/:id/production/:epNum" element={<EpisodePage />} />
+              <Route path="/projects/:id/pipeline" element={<PipelinePage />} />
+              {/* Redirect old routes and /projects/:id to idea tab */}
+              <Route path="/projects/:id" element={<RedirectToIdea />} />
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+          </ErrorBoundary>
+        </div>
+      </GenerationProvider>
     </BrowserRouter>
   );
 }

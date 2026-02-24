@@ -10,14 +10,39 @@ export default function Layout({ children, project }) {
   const [pipeline, setPipeline] = useState(null);
   const [showSettings, setShowSettings] = useState(false);
   const [apiKeyConfigured, setApiKeyConfigured] = useState(null);
+  const [episodes, setEpisodes] = useState([]);
+  const [productionExpanded, setProductionExpanded] = useState(false);
 
-  // Determine active tab from current URL path
-  const currentPath = location.pathname.split('/').pop();
+  // Determine if we're on a production-related route
+  const pathname = location.pathname;
+  const isProductionRoute = pathname.includes('/production');
+  const isEpisodeRoute = /\/production\/\d+/.test(pathname);
+
+  // Determine active tab from URL
+  const pathParts = pathname.split('/');
+  const currentPath = isEpisodeRoute ? 'production' : pathParts[pathParts.length - 1];
+
+  // Extract current episode number from URL if on episode page
+  const currentEpNum = isEpisodeRoute ? pathParts[pathParts.length - 1] : null;
+
+  // Auto-expand production when on a production route
+  useEffect(() => {
+    if (isProductionRoute) {
+      setProductionExpanded(true);
+    }
+  }, [isProductionRoute]);
 
   // Fetch pipeline data for badge counts
   useEffect(() => {
     if (id) {
       api.getPipeline(id).then(setPipeline).catch(console.error);
+    }
+  }, [id]);
+
+  // Fetch episodes for sidebar sub-items
+  useEffect(() => {
+    if (id) {
+      api.getEpisodes(id).then(setEpisodes).catch(console.error);
     }
   }, [id]);
 
@@ -64,18 +89,58 @@ export default function Layout({ children, project }) {
 
             {TABS.map((tab) => {
               const badge = getTabBadgeCount(tab.key, pipeline);
+              const isProduction = tab.key === 'production';
+              const isActive = isProduction ? isProductionRoute : currentPath === tab.path;
+
               return (
-                <Link
-                  key={tab.key}
-                  to={`/projects/${id}/${tab.path}`}
-                  className={`sidebar-link ${currentPath === tab.path ? 'active' : ''}`}
-                >
-                  <span className="sidebar-icon">{tab.icon}</span>
-                  <span className="sidebar-label">{tab.label}</span>
-                  {badge > 0 && (
-                    <span className="sidebar-badge">{badge}</span>
+                <div key={tab.key}>
+                  {/* Main tab link */}
+                  <div style={{ display: 'flex', alignItems: 'center' }}>
+                    <Link
+                      to={`/projects/${id}/${tab.path}`}
+                      className={`sidebar-link ${isActive ? 'active' : ''}`}
+                      style={{ flex: 1 }}
+                    >
+                      <span className="sidebar-icon">{tab.icon}</span>
+                      <span className="sidebar-label">{tab.label}</span>
+                      {badge > 0 && (
+                        <span className="sidebar-badge">{badge}</span>
+                      )}
+                    </Link>
+                    {isProduction && episodes.length > 0 && (
+                      <button
+                        onClick={(e) => { e.preventDefault(); setProductionExpanded(!productionExpanded); }}
+                        className="sidebar-expand-btn"
+                        title={productionExpanded ? 'Collapse episodes' : 'Expand episodes'}
+                      >
+                        <span style={{
+                          display: 'inline-block',
+                          transform: productionExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
+                          transition: 'transform 0.15s',
+                          fontSize: '0.7rem',
+                        }}>
+                          ▶
+                        </span>
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Episode sub-items (only for production) */}
+                  {isProduction && productionExpanded && episodes.length > 0 && (
+                    <div className="sidebar-subitems">
+                      {episodes.filter(ep => ep.state !== 'pending').map((ep) => (
+                        <Link
+                          key={ep.id}
+                          to={`/projects/${id}/production/${ep.episode_number}`}
+                          className={`sidebar-sublink ${String(currentEpNum) === String(ep.episode_number) ? 'active' : ''}`}
+                        >
+                          <span className="ep-num-badge">{ep.episode_number}</span>
+                          <span className="sidebar-sublabel">{ep.title || `Episode ${ep.episode_number}`}</span>
+                        </Link>
+                      ))}
+                    </div>
                   )}
-                </Link>
+                </div>
               );
             })}
           </nav>

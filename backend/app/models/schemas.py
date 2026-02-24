@@ -57,6 +57,7 @@ class ProjectCreate(BaseModel):
 
 class ProjectUpdate(BaseModel):
     num_episodes: Optional[int] = None
+    image_style: Optional[str] = None
 
     @field_validator('num_episodes')
     @classmethod
@@ -65,12 +66,20 @@ class ProjectUpdate(BaseModel):
             raise ValueError('num_episodes must be between 5 and 25')
         return v
 
+    @field_validator('image_style')
+    @classmethod
+    def validate_image_style(cls, v):
+        if v is not None and v not in ('drama', 'anime'):
+            raise ValueError("image_style must be 'drama' or 'anime'")
+        return v
+
 
 class ProjectResponse(BaseModel):
     id: str
     title: Optional[str]
     setting: Optional[str]
     num_episodes: int
+    image_style: str = "drama"
     current_step: int
     created_at: datetime
     updated_at: datetime

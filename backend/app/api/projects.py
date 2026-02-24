@@ -117,6 +117,8 @@ def update_project(project_id: str, data: ProjectUpdate, db: Session = Depends(g
 
     if data.num_episodes is not None:
         project.num_episodes = data.num_episodes
+    if data.image_style is not None:
+        project.image_style = data.image_style
 
     db.commit()
     db.refresh(project)
@@ -271,6 +273,7 @@ def _project_to_response(project: Project) -> ProjectResponse:
         title=project.title,
         setting=project.setting,
         num_episodes=project.num_episodes,
+        image_style=project.image_style or "drama",
         current_step=project.current_step,
         created_at=project.created_at,
         updated_at=project.updated_at,

@@ -105,7 +105,8 @@ async def generate_image_prompts(request: Request, project_id: str, db: Session 
         result = await generator.generate_episode_image_prompts(
             episode_title=episode.title or f"Episode {episode.episode_number}",
             scenes=scenes_data,
-            characters=characters_data
+            characters=characters_data,
+            style=project.image_style
         )
 
         # Map shots back to the correct scene DB objects
@@ -235,7 +236,7 @@ async def generate_reference_prompts(request: Request, project_id: str, db: Sess
             "physical_description": character.physical_description,
             "personality": character.personality,
             "role": character.role
-        })
+        }, style=project.image_style)
         
         ref = CharacterRef(
             character_id=character.id,
@@ -256,7 +257,7 @@ async def generate_reference_prompts(request: Request, project_id: str, db: Sess
             "description": location.description,
             "visual_details": location.visual_details,
             "mood": location.mood
-        })
+        }, style=project.image_style)
         
         ref = LocationRef(
             location_id=location.id,
@@ -324,12 +325,15 @@ def reject_character_ref(ref_id: str, db: Session = Depends(get_db)):
 
 @character_ref_router.post("/{ref_id}/regenerate")
 async def regenerate_character_ref(ref_id: str, db: Session = Depends(get_db)):
-    """Regenerate character reference image"""
+    """Regenerate character reference image (also works for first-time generation from PENDING)"""
     ref = db.query(CharacterRef).filter(CharacterRef.id == ref_id).first()
     if not ref:
         raise HTTPException(status_code=404, detail="Character reference not found")
 
-    ref.reset_for_regen()
+    style = ref.character.project.image_style if ref.character and ref.character.project else None
+
+    if ref.state != MediaState.PENDING:
+        ref.reset_for_regen()
     ref.mark_generating()
     db.flush()
 
@@ -338,7 +342,7 @@ async def regenerate_character_ref(ref_id: str, db: Session = Depends(get_db)):
     )
 
     try:
-        await generator.generate_image(ref.prompt_text, save_path, "3:4")
+        await generator.generate_image(ref.prompt_text, save_path, "3:4", style=style)
         rel_path = os.path.relpath(save_path, OUTPUTS_DIR)
         ref.mark_generated(f"/outputs/{rel_path.replace(os.sep, '/')}")
         db.commit()
@@ -395,12 +399,15 @@ def reject_location_ref(ref_id: str, db: Session = Depends(get_db)):
 
 @location_ref_router.post("/{ref_id}/regenerate")
 async def regenerate_location_ref(ref_id: str, db: Session = Depends(get_db)):
-    """Regenerate location reference image"""
+    """Regenerate location reference image (also works for first-time generation from PENDING)"""
     ref = db.query(LocationRef).filter(LocationRef.id == ref_id).first()
     if not ref:
         raise HTTPException(status_code=404, detail="Location reference not found")
 
-    ref.reset_for_regen()
+    style = ref.location.project.image_style if ref.location and ref.location.project else None
+
+    if ref.state != MediaState.PENDING:
+        ref.reset_for_regen()
     ref.mark_generating()
     db.flush()
 
@@ -409,7 +416,7 @@ async def regenerate_location_ref(ref_id: str, db: Session = Depends(get_db)):
     )
 
     try:
-        await generator.generate_image(ref.prompt_text, save_path, "16:9")
+        await generator.generate_image(ref.prompt_text, save_path, "16:9", style=style)
         rel_path = os.path.relpath(save_path, OUTPUTS_DIR)
         ref.mark_generated(f"/outputs/{rel_path.replace(os.sep, '/')}")
         db.commit()
@@ -471,7 +478,7 @@ async def generate_images(request: Request, project_id: str, db: Session = Depen
 
                 try:
                     await generator.generate_image(
-                        prompt.prompt_text, save_path, aspect_ratio
+                        prompt.prompt_text, save_path, aspect_ratio, style=project.image_style
                     )
                     rel_path = os.path.relpath(save_path, OUTPUTS_DIR)
                     image.mark_generated(f"/outputs/{rel_path.replace(os.sep, '/')}")
@@ -517,7 +524,7 @@ async def generate_reference_images(request: Request, project_id: str, db: Sessi
 
             try:
                 await generator.generate_image(
-                    char.reference.prompt_text, save_path, "3:4"
+                    char.reference.prompt_text, save_path, "3:4", style=project.image_style
                 )
                 rel_path = os.path.relpath(save_path, OUTPUTS_DIR)
                 char.reference.mark_generated(f"/outputs/{rel_path.replace(os.sep, '/')}")
@@ -539,7 +546,7 @@ async def generate_reference_images(request: Request, project_id: str, db: Sessi
 
             try:
                 await generator.generate_image(
-                    loc.reference.prompt_text, save_path, "16:9"
+                    loc.reference.prompt_text, save_path, "16:9", style=project.image_style
                 )
                 rel_path = os.path.relpath(save_path, OUTPUTS_DIR)
                 loc.reference.mark_generated(f"/outputs/{rel_path.replace(os.sep, '/')}")
@@ -613,7 +620,7 @@ async def generate_thumbnails(request: Request, project_id: str, db: Session = D
             )
 
             try:
-                await generator.generate_image(thumb.prompt_text, save_path, aspect_ratio)
+                await generator.generate_image(thumb.prompt_text, save_path, aspect_ratio, style=project.image_style)
                 rel_path = os.path.relpath(save_path, OUTPUTS_DIR)
                 thumb.mark_generated(f"/outputs/{rel_path.replace(os.sep, '/')}")
                 thumbnails_created += 1
@@ -662,7 +669,7 @@ async def generate_thumbnails(request: Request, project_id: str, db: Session = D
 
             try:
                 await generator.generate_image(
-                    thumb.prompt_text, save_path, aspect_ratio
+                    thumb.prompt_text, save_path, aspect_ratio, style=project.image_style
                 )
                 rel_path = os.path.relpath(save_path, OUTPUTS_DIR)
                 thumb.mark_generated(f"/outputs/{rel_path.replace(os.sep, '/')}")
@@ -748,8 +755,10 @@ async def regenerate_thumbnail(thumb_id: str, db: Session = Depends(get_db)):
         f"ep_{ep_num}_{thumb.orientation}.png"
     )
 
+    style = thumb.project.image_style if thumb.project else None
+
     try:
-        await generator.generate_image(thumb.prompt_text, save_path, aspect_ratio)
+        await generator.generate_image(thumb.prompt_text, save_path, aspect_ratio, style=style)
         rel_path = os.path.relpath(save_path, OUTPUTS_DIR)
         thumb.mark_generated(f"/outputs/{rel_path.replace(os.sep, '/')}")
         db.commit()
@@ -894,6 +903,13 @@ async def regenerate_generated_image(image_id: str, db: Session = Depends(get_db
         raise HTTPException(status_code=404, detail="Image not found")
 
     prompt = image.image_prompt
+    # Get project style via: image → image_prompt → scene → episode → project
+    style = None
+    try:
+        style = prompt.scene.episode.project.image_style
+    except AttributeError:
+        pass
+
     image.reset_for_regen()
     image.mark_generating()
     db.flush()
@@ -910,7 +926,7 @@ async def regenerate_generated_image(image_id: str, db: Session = Depends(get_db
     )
 
     try:
-        await generator.generate_image(prompt.prompt_text, save_path, aspect_ratio)
+        await generator.generate_image(prompt.prompt_text, save_path, aspect_ratio, style=style)
         rel_path = os.path.relpath(save_path, OUTPUTS_DIR)
         image.mark_generated(f"/outputs/{rel_path.replace(os.sep, '/')}")
         db.commit()

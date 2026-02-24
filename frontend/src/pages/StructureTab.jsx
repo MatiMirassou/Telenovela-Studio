@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import Layout from '../components/Layout';
 import api, { API_BASE } from '../api/client';
 import { showToast } from '../components/Toast';
+import { useGeneration } from '../context/GenerationContext';
 
 export default function StructureTab() {
   const { id } = useParams();
@@ -21,6 +22,7 @@ export default function StructureTab() {
   const [activeTab, setActiveTab] = useState('characters');
   const [editingItem, setEditingItem] = useState(null);
   const [pendingRefAction, setPendingRefAction] = useState(null); // tracks ref ID being acted on
+  const { startGeneration, stopGeneration } = useGeneration();
 
   useEffect(() => { loadData(); }, [id]);
 
@@ -57,6 +59,7 @@ export default function StructureTab() {
 
   const generateStructure = async () => {
     setGenerating(true);
+    startGeneration('Generating Structure...');
     try {
       const result = await api.generateStructure(id);
       const totalCreated = (result.characters_count || 0) +
@@ -68,7 +71,7 @@ export default function StructureTab() {
       await loadData();
     } catch (err) {
       showToast('Failed to generate structure: ' + err.message, 'error');
-    } finally { setGenerating(false); }
+    } finally { setGenerating(false); stopGeneration(); }
   };
 
   const approveAll = async () => {
@@ -85,49 +88,64 @@ export default function StructureTab() {
     }
 
     setGeneratingRefs(true);
+    startGeneration('Generating Reference Images...');
     try {
       // Step 1: Create prompts for any chars/locs that don't have refs yet
       await api.generateReferences(id);
+      await loadData(); // Refresh to get new refs
 
-      // Step 2: Generate images for all pending/generating refs
+      // Step 2: Generate images one by one (sequential to avoid overloading API)
       setGeneratingRefImages(true);
-      const imgResult = await api.generateReferenceImages(id);
-      await loadData();
+      const freshCharRefs = await api.getCharacterRefs(id);
+      const freshLocRefs = await api.getLocationRefs(id);
+      let errors = [];
 
-      const errors = imgResult.errors || [];
-      if (errors.length > 0) {
-        const firstError = errors[0]?.error || 'Unknown error';
-        showToast(`Image generation failed (${errors.length} errors). ${firstError}`, 'error');
+      for (const ref of freshCharRefs) {
+        if (ref.state === 'pending' || ref.state === 'generating') {
+          try { await api.regenerateCharacterRef(ref.id); } catch (e) { errors.push(e.message); }
+          await loadData();
+        }
       }
-      // No alert on success — the images appearing on cards IS the feedback
+      for (const ref of freshLocRefs) {
+        if (ref.state === 'pending' || ref.state === 'generating') {
+          try { await api.regenerateLocationRef(ref.id); } catch (e) { errors.push(e.message); }
+          await loadData();
+        }
+      }
+
+      if (errors.length > 0) {
+        showToast(`${errors.length} image(s) failed. ${errors[0]}`, 'error');
+      }
     } catch (err) {
       showToast('Failed to generate references: ' + err.message, 'error');
     } finally {
       setGeneratingRefs(false);
       setGeneratingRefImages(false);
+      stopGeneration();
     }
   };
 
   const regenerateAllRefs = async () => {
-    if (!confirm('This will regenerate ALL reference images. Continue?')) return;
+    if (!confirm('This will regenerate ALL reference images one by one. Continue?')) return;
     setGeneratingRefs(true);
     setGeneratingRefImages(true);
+    startGeneration('Regenerating All Reference Images...');
     try {
-      // Regenerate each ref individually (uses the regenerate endpoint which handles any state)
-      const promises = [];
+      // Generate sequentially to avoid overwhelming the API
       for (const ref of charRefs) {
-        promises.push(api.regenerateCharacterRef(ref.id).catch(() => {}));
+        try { await api.regenerateCharacterRef(ref.id); } catch {}
+        await loadData(); // Refresh after each so user sees progress
       }
       for (const ref of locRefs) {
-        promises.push(api.regenerateLocationRef(ref.id).catch(() => {}));
+        try { await api.regenerateLocationRef(ref.id); } catch {}
+        await loadData();
       }
-      await Promise.all(promises);
-      await loadData();
     } catch (err) {
       showToast('Failed to regenerate: ' + err.message, 'error');
     } finally {
       setGeneratingRefs(false);
       setGeneratingRefImages(false);
+      stopGeneration();
     }
   };
 
@@ -260,7 +278,28 @@ export default function StructureTab() {
 
             {/* Reference Generation — shown on characters/locations tabs */}
             {(activeTab === 'characters' || activeTab === 'locations') && (
-              <div className="action-bar" style={{ borderTop: '1px solid var(--border)', paddingTop: '0.75rem' }}>
+              <div className="action-bar" style={{ borderTop: '1px solid var(--border)', paddingTop: '0.75rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+                {/* Style Switcher */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <label style={{ fontSize: '0.8rem', fontWeight: 600, whiteSpace: 'nowrap' }}>Image Style:</label>
+                  <div style={{ display: 'flex', borderRadius: 6, overflow: 'hidden', border: '1px solid var(--border)' }}>
+                    <button
+                      onClick={() => { api.updateProject(id, { image_style: 'drama' }); setProject(p => ({ ...p, image_style: 'drama' })); }}
+                      className={project?.image_style !== 'anime' ? 'btn btn-small' : 'btn btn-small btn-outline'}
+                      style={{ borderRadius: 0, borderRight: '1px solid var(--border)', fontWeight: project?.image_style !== 'anime' ? 700 : 400 }}
+                    >
+                      🎭 Drama
+                    </button>
+                    <button
+                      onClick={() => { api.updateProject(id, { image_style: 'anime' }); setProject(p => ({ ...p, image_style: 'anime' })); }}
+                      className={project?.image_style === 'anime' ? 'btn btn-small' : 'btn btn-small btn-outline'}
+                      style={{ borderRadius: 0, fontWeight: project?.image_style === 'anime' ? 700 : 400 }}
+                    >
+                      ✨ Anime
+                    </button>
+                  </div>
+                </div>
+
                 {refsWithImages >= totalExpectedRefs && totalExpectedRefs > 0 ? (
                   <button onClick={regenerateAllRefs} disabled={generatingRefs || generatingRefImages} className="btn btn-secondary">
                     {generatingRefImages ? (
@@ -313,7 +352,13 @@ export default function StructureTab() {
                               </div>
                             )}
                             {(ref.state === 'pending' || ref.state === 'rejected') && (
-                              <p style={{ fontSize: '0.75rem', marginTop: '0.25rem' }}>Waiting for image generation</p>
+                              <div style={{ marginTop: '0.5rem' }}>
+                                <button onClick={() => regenerateCharRef(ref.id)} disabled={pendingRefAction === ref.id} className="btn btn-small btn-primary">
+                                  {pendingRefAction === ref.id ? (
+                                    <><span className="spinner" style={{ width: 12, height: 12, borderWidth: 2, marginRight: 4, display: 'inline-block', verticalAlign: 'middle' }}></span> Generating...</>
+                                  ) : 'Generate Image'}
+                                </button>
+                              </div>
                             )}
                           </div>
                         </div>
@@ -391,7 +436,13 @@ export default function StructureTab() {
                               </div>
                             )}
                             {(ref.state === 'pending' || ref.state === 'rejected') && (
-                              <p style={{ fontSize: '0.75rem', marginTop: '0.25rem' }}>Waiting for image generation</p>
+                              <div style={{ marginTop: '0.5rem' }}>
+                                <button onClick={() => regenerateLocRef(ref.id)} disabled={pendingRefAction === ref.id} className="btn btn-small btn-primary">
+                                  {pendingRefAction === ref.id ? (
+                                    <><span className="spinner" style={{ width: 12, height: 12, borderWidth: 2, marginRight: 4, display: 'inline-block', verticalAlign: 'middle' }}></span> Generating...</>
+                                  ) : 'Generate Image'}
+                                </button>
+                              </div>
                             )}
                           </div>
                         </div>
