@@ -445,8 +445,8 @@ class CharacterRef(StateMachineMixin, Base):
     VALID_TRANSITIONS = {
         MediaState.PENDING: {MediaState.GENERATING},
         MediaState.GENERATING: {MediaState.GENERATED, MediaState.PENDING},
-        MediaState.GENERATED: {MediaState.APPROVED, MediaState.REJECTED},
-        MediaState.APPROVED: {MediaState.REJECTED},
+        MediaState.GENERATED: {MediaState.APPROVED, MediaState.REJECTED, MediaState.PENDING},
+        MediaState.APPROVED: {MediaState.REJECTED, MediaState.PENDING},
         MediaState.REJECTED: {MediaState.PENDING},
     }
 
@@ -484,8 +484,8 @@ class LocationRef(StateMachineMixin, Base):
     VALID_TRANSITIONS = {
         MediaState.PENDING: {MediaState.GENERATING},
         MediaState.GENERATING: {MediaState.GENERATED, MediaState.PENDING},
-        MediaState.GENERATED: {MediaState.APPROVED, MediaState.REJECTED},
-        MediaState.APPROVED: {MediaState.REJECTED},
+        MediaState.GENERATED: {MediaState.APPROVED, MediaState.REJECTED, MediaState.PENDING},
+        MediaState.APPROVED: {MediaState.REJECTED, MediaState.PENDING},
         MediaState.REJECTED: {MediaState.PENDING},
     }
 
@@ -527,8 +527,8 @@ class GeneratedImage(StateMachineMixin, Base):
     VALID_TRANSITIONS = {
         MediaState.PENDING: {MediaState.GENERATING},
         MediaState.GENERATING: {MediaState.GENERATED, MediaState.PENDING},
-        MediaState.GENERATED: {MediaState.APPROVED, MediaState.REJECTED},
-        MediaState.APPROVED: {MediaState.REJECTED},
+        MediaState.GENERATED: {MediaState.APPROVED, MediaState.REJECTED, MediaState.PENDING},
+        MediaState.APPROVED: {MediaState.REJECTED, MediaState.PENDING},
         MediaState.REJECTED: {MediaState.PENDING},
     }
 
@@ -569,8 +569,8 @@ class Thumbnail(StateMachineMixin, Base):
     VALID_TRANSITIONS = {
         MediaState.PENDING: {MediaState.GENERATING},
         MediaState.GENERATING: {MediaState.GENERATED, MediaState.PENDING},
-        MediaState.GENERATED: {MediaState.APPROVED, MediaState.REJECTED},
-        MediaState.APPROVED: {MediaState.REJECTED},
+        MediaState.GENERATED: {MediaState.APPROVED, MediaState.REJECTED, MediaState.PENDING},
+        MediaState.APPROVED: {MediaState.REJECTED, MediaState.PENDING},
         MediaState.REJECTED: {MediaState.PENDING},
     }
 
@@ -648,8 +648,8 @@ class GeneratedVideo(StateMachineMixin, Base):
     VALID_TRANSITIONS = {
         MediaState.PENDING: {MediaState.GENERATING},
         MediaState.GENERATING: {MediaState.GENERATED, MediaState.PENDING},
-        MediaState.GENERATED: {MediaState.APPROVED, MediaState.REJECTED},
-        MediaState.APPROVED: {MediaState.REJECTED},
+        MediaState.GENERATED: {MediaState.APPROVED, MediaState.REJECTED, MediaState.PENDING},
+        MediaState.APPROVED: {MediaState.REJECTED, MediaState.PENDING},
         MediaState.REJECTED: {MediaState.PENDING},
     }
 
