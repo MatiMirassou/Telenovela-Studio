@@ -39,10 +39,10 @@ export default function LoginPage({ onLogin }) {
       <div className="login-card">
         <div className="login-header">
           <h1 className="login-title">
-            <svg width="40" height="40" viewBox="0 0 36 36" xmlns="http://www.w3.org/2000/svg" style={{ verticalAlign: 'middle', marginRight: '0.5rem' }}>
-              <circle cx="18" cy="18" r="18" fill="#E8751A"/>
-              <text x="18" y="13" textAnchor="middle" fill="#fff" fontSize="9" fontWeight="700" fontFamily="Arial, sans-serif" dy="0">Lingo</text>
-              <text x="18" y="24" textAnchor="middle" fill="#fff" fontSize="11" fontWeight="700" fontFamily="Arial, sans-serif" dy="0">Pie.</text>
+            <svg width="40" height="40" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" style={{ verticalAlign: 'middle', marginRight: '0.5rem' }}>
+              <circle cx="50" cy="50" r="50" fill="#E8751A"/>
+              <text x="50" y="46" textAnchor="middle" fill="#fff" fontSize="30" fontWeight="800" fontFamily="'Nunito', 'Rounded Mplus 1c', Arial, sans-serif">Lingö</text>
+              <text x="50" y="76" textAnchor="middle" fill="#fff" fontSize="34" fontWeight="800" fontFamily="'Nunito', 'Rounded Mplus 1c', Arial, sans-serif">pie.</text>
             </svg>
             Telenovela Studio
           </h1>
