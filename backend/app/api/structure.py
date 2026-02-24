@@ -2,6 +2,7 @@
 Structure API routes (Step 3-4): Characters, Locations, Episode Summaries
 """
 
+import logging
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 from typing import List, Optional
@@ -20,6 +21,8 @@ from app.services.generator import generator
 from app.api import parse_state_filter
 from app.middleware.rate_limit import limiter, AI_GENERATION_LIMIT
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/projects/{project_id}", tags=["structure"])
 
 
@@ -34,93 +37,120 @@ async def generate_structure(request: Request, project_id: str, db: Session = De
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
-    
+
     # Get approved idea
     approved_idea = next((i for i in project.ideas if i.state == IdeaState.APPROVED), None)
     if not approved_idea:
         raise HTTPException(status_code=400, detail="No approved idea - select an idea first")
-    
-    # Clear existing structure
-    for c in project.characters:
-        db.delete(c)
-    for l in project.locations:
-        db.delete(l)
-    for e in project.episode_summaries:
-        db.delete(e)
-    db.flush()
 
-    # Generate all structure in a single AI call
-    structure_data = await generator.generate_structure(
-        title=approved_idea.title,
-        setting=approved_idea.setting,
-        logline=approved_idea.logline,
-        main_conflict=approved_idea.main_conflict,
-        num_episodes=project.num_episodes
-    )
+    try:
+        # Clear existing structure (inside try so rollback restores on failure)
+        for c in project.characters:
+            db.delete(c)
+        for l in project.locations:
+            db.delete(l)
+        for e in project.episode_summaries:
+            db.delete(e)
+        db.flush()
 
-    # Save characters (map camelCase → snake_case)
-    characters = []
-    for char_data in structure_data.get("characters", []):
-        char = Character(
-            project_id=project_id,
-            name=char_data.get("name", "Unknown"),
-            role=char_data.get("role", "supporting"),
-            archetype=char_data.get("archetype", ""),
-            age=char_data.get("age", ""),
-            physical_description=char_data.get("physicalDescription", ""),
-            personality=char_data.get("personality", ""),
-            motivation=char_data.get("motivation", ""),
-            secret=char_data.get("secret", ""),
-            arc=char_data.get("arc", ""),
-            state=StructureState.DRAFT
+        # Generate all structure in a single AI call
+        structure_data = await generator.generate_structure(
+            title=approved_idea.title,
+            setting=approved_idea.setting,
+            logline=approved_idea.logline,
+            main_conflict=approved_idea.main_conflict,
+            num_episodes=project.num_episodes
         )
-        db.add(char)
-        characters.append(char)
 
-    # Save locations (map backgroundPrompt → visual_details)
-    locations = []
-    for loc_data in structure_data.get("locations", []):
-        loc = Location(
-            project_id=project_id,
-            name=loc_data.get("name", "Unknown"),
-            type=loc_data.get("type", "interior"),
-            description=loc_data.get("description", ""),
-            mood=loc_data.get("mood", ""),
-            significance=loc_data.get("significance", ""),
-            visual_details=loc_data.get("backgroundPrompt", ""),
-            state=StructureState.DRAFT
-        )
-        db.add(loc)
-        locations.append(loc)
+        # Validate AI response
+        characters_data = structure_data.get("characters", []) if isinstance(structure_data, dict) else []
+        locations_data = structure_data.get("locations", []) if isinstance(structure_data, dict) else []
+        episodes_data = structure_data.get("episodes", []) if isinstance(structure_data, dict) else []
 
-    # Save episode summaries (map camelCase → snake_case)
-    episode_summaries = []
-    for ep_data in structure_data.get("episodes", []):
-        ep_summary = EpisodeSummary(
-            project_id=project_id,
-            episode_number=ep_data.get("number", 1),
-            title=ep_data.get("title", "Untitled"),
-            summary=ep_data.get("summary", ""),
-            key_beats=ep_data.get("keyBeats", []),
-            cliffhanger=ep_data.get("cliffhanger", ""),
-            emotional_arc=ep_data.get("emotionalArc", ""),
-            state=StructureState.DRAFT
+        if not characters_data and not locations_data and not episodes_data:
+            keys = list(structure_data.keys()) if isinstance(structure_data, dict) else "NOT A DICT"
+            logger.error(f"Structure generation returned empty data. Keys: {keys}")
+            raise HTTPException(
+                status_code=422,
+                detail="AI generated empty structure — no characters, locations, or episodes. Please try again."
+            )
+
+        # Save characters (map camelCase → snake_case)
+        characters = []
+        for char_data in characters_data:
+            char = Character(
+                project_id=project_id,
+                name=char_data.get("name", "Unknown"),
+                role=char_data.get("role", "supporting"),
+                archetype=char_data.get("archetype", ""),
+                age=char_data.get("age", ""),
+                physical_description=char_data.get("physicalDescription", ""),
+                personality=char_data.get("personality", ""),
+                motivation=char_data.get("motivation", ""),
+                secret=char_data.get("secret", ""),
+                arc=char_data.get("arc", ""),
+                state=StructureState.DRAFT
+            )
+            db.add(char)
+            characters.append(char)
+
+        # Save locations (map backgroundPrompt → visual_details)
+        locations = []
+        for loc_data in locations_data:
+            loc = Location(
+                project_id=project_id,
+                name=loc_data.get("name", "Unknown"),
+                type=loc_data.get("type", "interior"),
+                description=loc_data.get("description", ""),
+                mood=loc_data.get("mood", ""),
+                significance=loc_data.get("significance", ""),
+                visual_details=loc_data.get("backgroundPrompt", ""),
+                state=StructureState.DRAFT
+            )
+            db.add(loc)
+            locations.append(loc)
+
+        # Save episode summaries (map camelCase → snake_case)
+        episode_summaries = []
+        for ep_data in episodes_data:
+            ep_summary = EpisodeSummary(
+                project_id=project_id,
+                episode_number=ep_data.get("number", 1),
+                title=ep_data.get("title", "Untitled"),
+                summary=ep_data.get("summary", ""),
+                key_beats=ep_data.get("keyBeats", []),
+                cliffhanger=ep_data.get("cliffhanger", ""),
+                emotional_arc=ep_data.get("emotionalArc", ""),
+                state=StructureState.DRAFT
+            )
+            db.add(ep_summary)
+            episode_summaries.append(ep_summary)
+
+        # Advance to step 3
+        if project.current_step < 3:
+            project.current_step = 3
+
+        db.commit()
+
+        logger.info(f"Structure generated: {len(characters)} characters, {len(locations)} locations, {len(episode_summaries)} episodes")
+
+        return {
+            "status": "generated",
+            "characters_count": len(characters),
+            "locations_count": len(locations),
+            "episode_summaries_count": len(episode_summaries)
+        }
+
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as e:
+        logger.error(f"Structure generation failed: {e}", exc_info=True)
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Structure generation failed: {str(e)}"
         )
-        db.add(ep_summary)
-        episode_summaries.append(ep_summary)
-    
-    # Advance to step 3
-    if project.current_step < 3:
-        project.current_step = 3
-    
-    db.commit()
-    
-    return {
-        "status": "generated",
-        "characters_count": len(characters),
-        "locations_count": len(locations),
-        "episode_summaries_count": len(episode_summaries)
-    }
 
 
 # ============================================================================

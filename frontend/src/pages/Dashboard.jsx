@@ -54,7 +54,7 @@ export default function Dashboard() {
     setCreating(true);
     try {
       const project = await api.createProject({ num_episodes: 20 });
-      navigate(`/projects/${project.id}/ideas`);
+      navigate(`/projects/${project.id}/idea`);
     } catch (err) {
       console.error('Failed to create project:', err);
       alert('Failed to create project');

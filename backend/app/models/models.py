@@ -353,6 +353,14 @@ class Episode(StateMachineMixin, Base):
     def unapprove(self):
         self.transition_to(GenerationState.GENERATED)
 
+    def reset_for_regen(self):
+        """Reset episode back to PENDING (e.g. after a failed generation)"""
+        self.transition_to(GenerationState.PENDING)
+        self.title = None
+        self.cold_open = None
+        self.music_cue = None
+        self.cliffhanger_moment = None
+
 
 class Scene(Base):
     __tablename__ = "scenes"

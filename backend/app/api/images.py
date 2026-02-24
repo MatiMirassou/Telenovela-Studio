@@ -344,6 +344,7 @@ async def regenerate_character_ref(ref_id: str, db: Session = Depends(get_db)):
         db.commit()
         return {"status": "regenerated"}
     except Exception as e:
+        ref.reset_for_regen()  # GENERATING → PENDING so retry works
         db.commit()
         raise HTTPException(status_code=500, detail=f"Regeneration failed: {str(e)}")
 
@@ -414,6 +415,7 @@ async def regenerate_location_ref(ref_id: str, db: Session = Depends(get_db)):
         db.commit()
         return {"status": "regenerated"}
     except Exception as e:
+        ref.reset_for_regen()  # GENERATING → PENDING so retry works
         db.commit()
         raise HTTPException(status_code=500, detail=f"Regeneration failed: {str(e)}")
 
@@ -436,37 +438,48 @@ async def generate_images(request: Request, project_id: str, db: Session = Depen
     for episode in project.episodes:
         for scene in episode.scenes:
             for prompt in scene.image_prompts:
-                if prompt.state == PromptState.APPROVED and not prompt.generated_image:
-                    image = GeneratedImage(
-                        image_prompt_id=prompt.id,
-                    )
+                image = prompt.generated_image
+                needs_generation = False
+
+                if prompt.state == PromptState.APPROVED and not image:
+                    image = GeneratedImage(image_prompt_id=prompt.id)
                     db.add(image)
                     db.flush()
-                    image.mark_generating()
+                    needs_generation = True
+                elif image and image.state == MediaState.GENERATING:
+                    # Retry stuck GENERATING images
+                    image.reset_for_regen()
+                    needs_generation = True
 
-                    # Map shot type to aspect ratio
-                    shot_type = (prompt.shot_type or "medium").lower()
-                    if shot_type in ("wide", "establishing"):
-                        aspect_ratio = "16:9"
-                    else:
-                        aspect_ratio = "9:16"
+                if not needs_generation:
+                    continue
 
-                    save_path = os.path.join(
-                        OUTPUTS_DIR, "images",
-                        f"scene_{scene.id}_{prompt.shot_number}.png"
+                image.mark_generating()
+                db.flush()
+
+                # Map shot type to aspect ratio
+                shot_type = (prompt.shot_type or "medium").lower()
+                if shot_type in ("wide", "establishing"):
+                    aspect_ratio = "16:9"
+                else:
+                    aspect_ratio = "9:16"
+
+                save_path = os.path.join(
+                    OUTPUTS_DIR, "images",
+                    f"scene_{scene.id}_{prompt.shot_number}.png"
+                )
+
+                try:
+                    await generator.generate_image(
+                        prompt.prompt_text, save_path, aspect_ratio
                     )
-
-                    try:
-                        await generator.generate_image(
-                            prompt.prompt_text, save_path, aspect_ratio
-                        )
-                        # Store path relative to outputs dir for URL serving
-                        rel_path = os.path.relpath(save_path, OUTPUTS_DIR)
-                        image.mark_generated(f"/outputs/{rel_path.replace(os.sep, '/')}")
-                        images_created += 1
-                    except Exception as e:
-                        logger.error(f"Image generation failed for prompt {prompt.id}: {e}")
-                        errors.append({"prompt_id": prompt.id, "error": str(e)})
+                    rel_path = os.path.relpath(save_path, OUTPUTS_DIR)
+                    image.mark_generated(f"/outputs/{rel_path.replace(os.sep, '/')}")
+                    images_created += 1
+                except Exception as e:
+                    logger.error(f"Image generation failed for prompt {prompt.id}: {e}")
+                    errors.append({"prompt_id": prompt.id, "error": str(e)})
+                    image.reset_for_regen()
 
     # Update step
     if project.current_step < 8:
@@ -494,7 +507,7 @@ async def generate_reference_images(request: Request, project_id: str, db: Sessi
 
     # Generate character reference images (portrait 3:4)
     for char in project.characters:
-        if char.reference and char.reference.state == MediaState.PENDING:
+        if char.reference and char.reference.state in (MediaState.PENDING, MediaState.GENERATING):
             char.reference.mark_generating()
             db.flush()
 
@@ -512,10 +525,11 @@ async def generate_reference_images(request: Request, project_id: str, db: Sessi
             except Exception as e:
                 logger.error(f"Character ref generation failed for {char.name}: {e}")
                 errors.append({"character": char.name, "error": str(e)})
+                char.reference.reset_for_regen()  # GENERATING → PENDING so retry works
 
     # Generate location reference images (landscape 16:9)
     for loc in project.locations:
-        if loc.reference and loc.reference.state == MediaState.PENDING:
+        if loc.reference and loc.reference.state in (MediaState.PENDING, MediaState.GENERATING):
             loc.reference.mark_generating()
             db.flush()
 
@@ -533,6 +547,7 @@ async def generate_reference_images(request: Request, project_id: str, db: Sessi
             except Exception as e:
                 logger.error(f"Location ref generation failed for {loc.name}: {e}")
                 errors.append({"location": loc.name, "error": str(e)})
+                loc.reference.reset_for_regen()  # GENERATING → PENDING so retry works
 
     db.commit()
 
@@ -583,6 +598,35 @@ async def generate_thumbnails(request: Request, project_id: str, db: Session = D
     for episode in project.episodes:
         # Check if thumbnails already exist for this episode
         existing = [t for t in project.thumbnails if t.episode_id == episode.id]
+
+        # Retry any stuck GENERATING thumbnails
+        stuck_thumbs = [t for t in existing if t.state == MediaState.GENERATING]
+        for thumb in stuck_thumbs:
+            thumb.reset_for_regen()
+            thumb.mark_generating()
+            db.flush()
+
+            aspect_ratio = "9:16" if thumb.orientation == "vertical" else "16:9"
+            save_path = os.path.join(
+                OUTPUTS_DIR, "thumbnails",
+                f"ep_{episode.episode_number}_{thumb.orientation}.png"
+            )
+
+            try:
+                await generator.generate_image(thumb.prompt_text, save_path, aspect_ratio)
+                rel_path = os.path.relpath(save_path, OUTPUTS_DIR)
+                thumb.mark_generated(f"/outputs/{rel_path.replace(os.sep, '/')}")
+                thumbnails_created += 1
+            except Exception as e:
+                logger.error(f"Thumbnail retry failed for ep {episode.episode_number} {thumb.orientation}: {e}")
+                errors.append({"episode": episode.episode_number, "orientation": thumb.orientation, "error": str(e)})
+                thumb.reset_for_regen()
+
+        # Skip episode if it already has (non-stuck) thumbnails
+        if existing and not stuck_thumbs:
+            continue
+
+        # Only generate new thumbnails if none existed before
         if existing:
             continue
 
@@ -630,6 +674,7 @@ async def generate_thumbnails(request: Request, project_id: str, db: Session = D
                     "orientation": orientation,
                     "error": str(e)
                 })
+                thumb.reset_for_regen()
 
     # Update step
     if project.current_step < 9:
@@ -710,6 +755,7 @@ async def regenerate_thumbnail(thumb_id: str, db: Session = Depends(get_db)):
         db.commit()
         return {"status": "regenerated"}
     except Exception as e:
+        thumb.reset_for_regen()  # GENERATING → PENDING so retry works
         db.commit()
         raise HTTPException(status_code=500, detail=f"Regeneration failed: {str(e)}")
 
@@ -870,5 +916,6 @@ async def regenerate_generated_image(image_id: str, db: Session = Depends(get_db
         db.commit()
         return {"status": "regenerated"}
     except Exception as e:
+        image.reset_for_regen()  # GENERATING → PENDING so retry works
         db.commit()
         raise HTTPException(status_code=500, detail=f"Regeneration failed: {str(e)}")

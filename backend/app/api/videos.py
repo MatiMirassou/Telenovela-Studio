@@ -195,35 +195,47 @@ async def generate_videos(request: Request, project_id: str, db: Session = Depen
     for episode in project.episodes:
         for scene in episode.scenes:
             for prompt in scene.video_prompts:
-                if prompt.state == PromptState.APPROVED and not prompt.generated_video:
-                    video = GeneratedVideo(
-                        video_prompt_id=prompt.id,
-                    )
+                video = prompt.generated_video
+                needs_generation = False
+
+                if prompt.state == PromptState.APPROVED and not video:
+                    video = GeneratedVideo(video_prompt_id=prompt.id)
                     db.add(video)
                     db.flush()
-                    video.mark_generating()
+                    needs_generation = True
+                elif video and video.state == MediaState.GENERATING:
+                    # Retry stuck GENERATING videos
+                    video.reset_for_regen()
+                    needs_generation = True
 
-                    save_path = os.path.join(
-                        OUTPUTS_DIR, "videos",
-                        f"scene_{scene.id}_seg_{prompt.segment_number}.mp4"
+                if not needs_generation:
+                    continue
+
+                video.mark_generating()
+                db.flush()
+
+                save_path = os.path.join(
+                    OUTPUTS_DIR, "videos",
+                    f"scene_{scene.id}_seg_{prompt.segment_number}.mp4"
+                )
+
+                try:
+                    await generator.generate_video(
+                        prompt.prompt_text,
+                        save_path,
+                        duration_seconds=prompt.duration_seconds or 8,
+                        aspect_ratio="9:16"
                     )
-
-                    try:
-                        await generator.generate_video(
-                            prompt.prompt_text,
-                            save_path,
-                            duration_seconds=prompt.duration_seconds or 8,
-                            aspect_ratio="9:16"
-                        )
-                        rel_path = os.path.relpath(save_path, OUTPUTS_DIR)
-                        video.mark_generated(
-                            f"/outputs/{rel_path.replace(os.sep, '/')}",
-                            duration=prompt.duration_seconds
-                        )
-                        videos_created += 1
-                    except Exception as e:
-                        logger.error(f"Video generation failed for prompt {prompt.id}: {e}")
-                        errors.append({"prompt_id": prompt.id, "error": str(e)})
+                    rel_path = os.path.relpath(save_path, OUTPUTS_DIR)
+                    video.mark_generated(
+                        f"/outputs/{rel_path.replace(os.sep, '/')}",
+                        duration=prompt.duration_seconds
+                    )
+                    videos_created += 1
+                except Exception as e:
+                    logger.error(f"Video generation failed for prompt {prompt.id}: {e}")
+                    errors.append({"prompt_id": prompt.id, "error": str(e)})
+                    video.reset_for_regen()
 
     # Update step
     if project.current_step < 12:
@@ -317,5 +329,6 @@ async def regenerate_generated_video(video_id: str, db: Session = Depends(get_db
         db.commit()
         return {"status": "regenerated"}
     except Exception as e:
+        video.reset_for_regen()  # GENERATING → PENDING so retry works
         db.commit()
         raise HTTPException(status_code=500, detail=f"Regeneration failed: {str(e)}")

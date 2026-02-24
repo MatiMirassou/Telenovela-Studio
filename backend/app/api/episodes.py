@@ -76,13 +76,14 @@ async def generate_episodes(
     
     batch_size = body.batch_size if body else 5
     
-    # Find which episodes still need to be generated
-    generated_numbers = {ep.episode_number for ep in project.episodes if ep.state != GenerationState.PENDING}
+    # Find which episodes still need to be generated (include stuck GENERATING ones)
+    done_numbers = {ep.episode_number for ep in project.episodes
+                    if ep.state not in (GenerationState.PENDING, GenerationState.GENERATING)}
     summaries_to_generate = [
         s for s in sorted(project.episode_summaries, key=lambda x: x.episode_number)
-        if s.episode_number not in generated_numbers
+        if s.episode_number not in done_numbers
     ][:batch_size]
-    
+
     if not summaries_to_generate:
         raise HTTPException(status_code=400, detail="All episodes have been generated")
     
@@ -142,6 +143,8 @@ async def generate_episodes(
 
             if existing:
                 episode = existing
+                if episode.state == GenerationState.GENERATING:
+                    episode.reset_for_regen()
             else:
                 episode = Episode(
                     project_id=project_id,
@@ -168,13 +171,20 @@ async def generate_episodes(
         ]
 
         # Single AI call for 1-3 episodes
-        scripts_batch = await generator.generate_episode_scripts_batch(
-            episode_summaries=chunk_summaries,
-            characters=characters_data,
-            locations=locations_data,
-            series_title=series_title,
-            previous_episodes=previous_episodes if previous_episodes else None
-        )
+        try:
+            scripts_batch = await generator.generate_episode_scripts_batch(
+                episode_summaries=chunk_summaries,
+                characters=characters_data,
+                locations=locations_data,
+                series_title=series_title,
+                previous_episodes=previous_episodes if previous_episodes else None
+            )
+        except Exception as e:
+            # Rollback all episodes in this chunk to PENDING so retry works
+            for ep in episode_map.values():
+                ep.reset_for_regen()
+            db.flush()
+            raise HTTPException(status_code=500, detail=f"Script generation failed: {str(e)}")
 
         # Process each episode from the batch response
         for script_data in scripts_batch:
@@ -258,6 +268,11 @@ async def generate_episodes(
                 "title": episode.title,
                 "summary": summary.summary
             })
+
+        # Rollback any episodes that stayed GENERATING (AI didn't return them)
+        for ep in episode_map.values():
+            if ep.state == GenerationState.GENERATING:
+                ep.reset_for_regen()
 
     # Update project step
     if project.current_step < 5:

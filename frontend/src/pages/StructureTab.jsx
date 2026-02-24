@@ -58,7 +58,13 @@ export default function StructureTab() {
   const generateStructure = async () => {
     setGenerating(true);
     try {
-      await api.generateStructure(id);
+      const result = await api.generateStructure(id);
+      const totalCreated = (result.characters_count || 0) +
+                           (result.locations_count || 0) +
+                           (result.episode_summaries_count || 0);
+      if (totalCreated === 0) {
+        showToast('Structure generation returned empty results. Please try again.', 'error');
+      }
       await loadData();
     } catch (err) {
       showToast('Failed to generate structure: ' + err.message, 'error');

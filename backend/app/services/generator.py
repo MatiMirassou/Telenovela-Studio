@@ -10,10 +10,24 @@ import os
 import time
 import base64
 import uuid
+import asyncio
+import logging
 from typing import List, Dict, Any, Optional
+
+from dotenv import load_dotenv
+load_dotenv()
+
+# The genai SDK auto-detects GOOGLE_API_KEY from the environment and uses it
+# with priority over GEMINI_API_KEY and even over explicitly passed api_key.
+# Override GOOGLE_API_KEY with our GEMINI_API_KEY so the SDK uses the right one.
+_gemini_key = os.getenv("GEMINI_API_KEY", "")
+if _gemini_key:
+    os.environ["GOOGLE_API_KEY"] = _gemini_key
 
 from google import genai
 from google.genai import types
+
+logger = logging.getLogger(__name__)
 
 # Outputs directory (relative to backend/)
 OUTPUTS_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "outputs")
@@ -33,9 +47,9 @@ class GeminiGenerator:
     def __init__(self, api_key: Optional[str] = None):
         key = api_key or os.getenv("GEMINI_API_KEY", "")
         self.client = genai.Client(api_key=key)
-        self.text_model = "gemini-3-flash-preview"
-        self.image_model = "gemini-3-pro-image-preview"
-        self.video_model = "veo-3.1-fast-generate-preview"
+        self.text_model = os.getenv("GEMINI_TEXT_MODEL", "gemini-2.5-flash")
+        self.image_model = os.getenv("GEMINI_IMAGE_MODEL", "gemini-3-pro-image-preview")
+        self.video_model = os.getenv("GEMINI_VIDEO_MODEL", "veo-3.1-fast-generate-preview")
         self.generation_config = types.GenerateContentConfig(
             temperature=0.9,
             top_p=0.95,
@@ -60,23 +74,31 @@ class GeminiGenerator:
         try:
             return json.loads(text)
         except json.JSONDecodeError:
-            # Try to find array or object boundaries
-            start = text.find('[') if '[' in text else text.find('{')
-            end = text.rfind(']') + 1 if ']' in text else text.rfind('}') + 1
-            if start != -1 and end > start:
-                try:
-                    return json.loads(text[start:end])
-                except:
-                    pass
+            # Try object first (more common), then array
+            for open_char, close_char in [('{', '}'), ('[', ']')]:
+                start = text.find(open_char)
+                end = text.rfind(close_char) + 1
+                if start != -1 and end > start:
+                    try:
+                        return json.loads(text[start:end])
+                    except json.JSONDecodeError:
+                        continue
+            logger.error(f"JSON extraction failed. Raw text (first 1000 chars): {text[:1000]}")
             raise ValueError(f"Could not parse JSON from response: {text[:500]}")
 
     async def generate(self, prompt: str) -> str:
         """Generate text response"""
-        response = self.client.models.generate_content(
+        logger.info(f"Calling {self.text_model} (prompt length: {len(prompt)})")
+        response = await asyncio.to_thread(
+            self.client.models.generate_content,
             model=self.text_model,
             contents=prompt,
             config=self.generation_config
         )
+        if not response.text:
+            logger.error(f"AI returned empty/null text. Candidates: {response.candidates}")
+            raise ValueError("AI returned empty response. The content may have been filtered by safety settings.")
+        logger.info(f"Response received (text length: {len(response.text)})")
         return response.text
 
     async def generate_json(self, prompt: str) -> Any:
@@ -100,32 +122,31 @@ class GeminiGenerator:
         Returns:
             The save_path where the image was written
         """
-        response = self.client.models.generate_content(
+        full_prompt = f"{prompt_text}. Style: {IMAGE_STYLE}"
+        logger.info(f"Generating image with {self.image_model} (aspect: {aspect_ratio})")
+        response = await asyncio.to_thread(
+            self.client.models.generate_images,
             model=self.image_model,
-            contents=prompt_text,
-            config=types.GenerateContentConfig(
-                response_modalities=["IMAGE"],
-                image_config=types.ImageConfig(
-                    aspect_ratio=aspect_ratio
-                )
+            prompt=full_prompt,
+            config=types.GenerateImagesConfig(
+                number_of_images=1,
+                aspect_ratio=aspect_ratio,
             )
         )
 
-        # Extract image data from response
-        for part in response.candidates[0].content.parts:
-            if part.inline_data is not None:
-                # Ensure directory exists
-                os.makedirs(os.path.dirname(save_path), exist_ok=True)
+        if response.generated_images and len(response.generated_images) > 0:
+            image = response.generated_images[0].image
+            os.makedirs(os.path.dirname(save_path), exist_ok=True)
 
-                # Save image bytes to file
-                image_bytes = part.inline_data.data
-                if isinstance(image_bytes, str):
-                    image_bytes = base64.b64decode(image_bytes)
+            image_bytes = image.image_bytes
+            if isinstance(image_bytes, str):
+                image_bytes = base64.b64decode(image_bytes)
 
-                with open(save_path, "wb") as f:
-                    f.write(image_bytes)
+            with open(save_path, "wb") as f:
+                f.write(image_bytes)
 
-                return save_path
+            logger.info(f"Image saved to {save_path}")
+            return save_path
 
         raise ValueError("No image data in response")
 
@@ -259,6 +280,7 @@ RESPOND ONLY WITH JSON, NO MARKDOWN, NO EXTRA TEXT.
     async def generate_structure(self, title: str, setting: str, logline: str,
                                   main_conflict: str, num_episodes: int) -> Dict:
         """Generate characters, locations, and episode arc in a single AI call"""
+        logger.info(f"Generating structure for '{title}' ({num_episodes} episodes)")
         prompt = f"""You are a production designer for ReelShort-style vertical drama series.
 
 Based on the story outline provided, create a complete production structure.
@@ -343,7 +365,15 @@ VARIETY - AVOID THESE CLICHÉS:
 
 RESPOND ONLY WITH THE JSON, NO MARKDOWN."""
 
-        return await self.generate_json(prompt)
+        result = await self.generate_json(prompt)
+        if isinstance(result, dict):
+            logger.info(f"Structure result keys: {list(result.keys())}, "
+                        f"characters: {len(result.get('characters', []))}, "
+                        f"locations: {len(result.get('locations', []))}, "
+                        f"episodes: {len(result.get('episodes', []))}")
+        else:
+            logger.warning(f"Structure result is not a dict: {type(result)}")
+        return result
 
     # =========================================================================
     # STEP 5: Generate Episode Scripts (Batch)
