@@ -29,6 +29,7 @@ export default function EpisodeDetailPanel({
   onRejectThumbnail,
   onRegenerateThumbnail,
   mediaActionDisabled,
+  cacheBust,
 }) {
   const [viewMode, setViewMode] = useState('data'); // 'script' | 'data'
 
@@ -94,6 +95,7 @@ export default function EpisodeDetailPanel({
                     onRejectVideo={onRejectVideo}
                     onRegenerateVideo={onRegenerateVideo}
                     mediaActionDisabled={mediaActionDisabled}
+                    cacheBust={cacheBust}
                   />
                 ))}
               </div>
@@ -108,6 +110,7 @@ export default function EpisodeDetailPanel({
                 onReject={onRejectThumbnail}
                 onRegenerate={onRegenerateThumbnail}
                 disabled={mediaActionDisabled}
+                cacheBust={cacheBust}
               />
             </>
           )}

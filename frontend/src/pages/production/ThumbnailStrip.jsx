@@ -1,6 +1,6 @@
 import { API_BASE } from '../../api/client';
 
-export default function ThumbnailStrip({ thumbnails, onApprove, onReject, onRegenerate, disabled }) {
+export default function ThumbnailStrip({ thumbnails, onApprove, onReject, onRegenerate, disabled, cacheBust }) {
   if (!thumbnails || thumbnails.length === 0) return null;
 
   return (
@@ -11,7 +11,7 @@ export default function ThumbnailStrip({ thumbnails, onApprove, onReject, onRege
           <div key={thumb.id} className="thumbnail-item">
             <span className={`badge ${thumb.state}`}>{thumb.state}</span>
             {thumb.image_path ? (
-              <img src={`${API_BASE}/outputs/${thumb.image_path}`} alt="" />
+              <img src={`${API_BASE}/outputs/${thumb.image_path}?t=${cacheBust || ''}`} alt="" />
             ) : (
               <div className="scene-media-placeholder" style={{ height: 80, width: 120 }}>
                 {thumb.state === 'generating' ? 'Generating...' : 'Pending'}

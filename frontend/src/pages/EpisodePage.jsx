@@ -28,6 +28,7 @@ export default function EpisodePage() {
   // Generation state
   const [generatingAction, setGeneratingAction] = useState(null);
   const [pendingMediaAction, setPendingMediaAction] = useState(null);
+  const [mediaCacheBust, setMediaCacheBust] = useState(Date.now());
 
   // Initial load
   useEffect(() => {
@@ -72,6 +73,7 @@ export default function EpisodePage() {
       setAllImagePrompts(imgPrompts);
       setAllVideoPrompts(vidPrompts);
       setAllThumbnails(thumbs);
+      setMediaCacheBust(Date.now());
     } catch (err) {
       console.error('Failed to load media data:', err);
     }
@@ -303,6 +305,7 @@ export default function EpisodePage() {
           onRejectThumbnail={rejectThumbnail}
           onRegenerateThumbnail={regenerateThumbnail}
           mediaActionDisabled={!!pendingMediaAction}
+          cacheBust={mediaCacheBust}
         />
       </div>
     </Layout>

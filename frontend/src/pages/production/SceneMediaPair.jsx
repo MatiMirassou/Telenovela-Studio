@@ -1,6 +1,6 @@
 import { API_BASE } from '../../api/client';
 
-export default function SceneMediaPair({ type, prompt, media, onApprove, onReject, onRegenerate, disabled }) {
+export default function SceneMediaPair({ type, prompt, media, onApprove, onReject, onRegenerate, disabled, cacheBust }) {
   const isImage = type === 'image';
   const label = isImage ? 'Image Prompt' : 'Video Prompt';
   const mediaLabel = isImage ? 'Generated Image' : 'Generated Video';
@@ -24,9 +24,9 @@ export default function SceneMediaPair({ type, prompt, media, onApprove, onRejec
           <>
             <span className={`badge ${media.state}`}>{media.state}</span>
             {isImage && media.image_path ? (
-              <img src={`${API_BASE}/outputs/${media.image_path}`} alt="" />
+              <img src={`${API_BASE}/outputs/${media.image_path}?t=${cacheBust || ''}`} alt="" />
             ) : !isImage && media.video_path ? (
-              <video controls src={`${API_BASE}/outputs/${media.video_path}`} />
+              <video controls src={`${API_BASE}/outputs/${media.video_path}?t=${cacheBust || ''}`} />
             ) : (
               <div className="scene-media-placeholder">{media.state === 'generating' ? 'Generating...' : 'Pending'}</div>
             )}

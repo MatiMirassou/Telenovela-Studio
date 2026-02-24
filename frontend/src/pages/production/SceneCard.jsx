@@ -11,6 +11,7 @@ export default function SceneCard({
   onRejectVideo,
   onRegenerateVideo,
   mediaActionDisabled,
+  cacheBust,
 }) {
   return (
     <div className="scene-card">
@@ -52,6 +53,7 @@ export default function SceneCard({
               onReject={onRejectImage}
               onRegenerate={onRegenerateImage}
               disabled={mediaActionDisabled}
+              cacheBust={cacheBust}
             />
           ))}
         </div>
@@ -71,6 +73,7 @@ export default function SceneCard({
               onReject={onRejectVideo}
               onRegenerate={onRegenerateVideo}
               disabled={mediaActionDisabled}
+              cacheBust={cacheBust}
             />
           ))}
         </div>

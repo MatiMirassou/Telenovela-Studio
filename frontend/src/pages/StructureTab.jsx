@@ -22,6 +22,7 @@ export default function StructureTab() {
   const [activeTab, setActiveTab] = useState('characters');
   const [editingItem, setEditingItem] = useState(null);
   const [pendingRefAction, setPendingRefAction] = useState(null); // tracks ref ID being acted on
+  const [imgCacheBust, setImgCacheBust] = useState(Date.now()); // cache buster for regenerated images
   const { startGeneration, stopGeneration } = useGeneration();
 
   useEffect(() => { loadData(); }, [id]);
@@ -43,6 +44,7 @@ export default function StructureTab() {
       setEpisodeSummaries(eps);
       setCharRefs(cRefs);
       setLocRefs(lRefs);
+      setImgCacheBust(Date.now());
     } catch (err) {
       console.error('Failed to load data:', err);
       setError(err.message);
@@ -333,7 +335,7 @@ export default function StructureTab() {
                       {/* Reference image or placeholder */}
                       {ref?.image_path ? (
                         <>
-                          <img src={`${API_BASE}${ref.image_path}`} alt={char.name} className="item-ref-image" />
+                          <img src={`${API_BASE}${ref.image_path}?t=${imgCacheBust}`} alt={char.name} className="item-ref-image" />
                           <div className="ref-actions">
                             <span className={`badge ${ref.state}`}>{ref.state}</span>
                             {ref.state === 'generated' && <button onClick={() => approveCharRef(ref.id)} disabled={!!pendingRefAction} className="btn btn-small btn-success">Approve</button>}
@@ -417,7 +419,7 @@ export default function StructureTab() {
                       {/* Reference image or placeholder */}
                       {ref?.image_path ? (
                         <>
-                          <img src={`${API_BASE}${ref.image_path}`} alt={loc.name} className="item-ref-image" />
+                          <img src={`${API_BASE}${ref.image_path}?t=${imgCacheBust}`} alt={loc.name} className="item-ref-image" />
                           <div className="ref-actions">
                             <span className={`badge ${ref.state}`}>{ref.state}</span>
                             {ref.state === 'generated' && <button onClick={() => approveLocRef(ref.id)} disabled={!!pendingRefAction} className="btn btn-small btn-success">Approve</button>}
