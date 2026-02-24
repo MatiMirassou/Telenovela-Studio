@@ -38,7 +38,14 @@ export default function LoginPage({ onLogin }) {
     <div className="login-page">
       <div className="login-card">
         <div className="login-header">
-          <h1 className="login-title">Telenovela Agent</h1>
+          <h1 className="login-title">
+            <svg width="40" height="40" viewBox="0 0 36 36" xmlns="http://www.w3.org/2000/svg" style={{ verticalAlign: 'middle', marginRight: '0.5rem' }}>
+              <circle cx="18" cy="18" r="18" fill="#E8751A"/>
+              <text x="18" y="13" textAnchor="middle" fill="#fff" fontSize="9" fontWeight="700" fontFamily="Arial, sans-serif" dy="0">Lingo</text>
+              <text x="18" y="24" textAnchor="middle" fill="#fff" fontSize="11" fontWeight="700" fontFamily="Arial, sans-serif" dy="0">Pie.</text>
+            </svg>
+            Telenovela Studio
+          </h1>
           <p className="login-subtitle">Enter password to continue</p>
         </div>
 

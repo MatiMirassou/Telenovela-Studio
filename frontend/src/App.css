@@ -50,10 +50,20 @@ body {
 }
 
 .logo {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  text-decoration: none;
+}
+
+.logo-icon {
+  flex-shrink: 0;
+}
+
+.logo-text {
   font-size: 1.5rem;
   font-weight: bold;
   color: var(--text);
-  text-decoration: none;
 }
 
 .project-info {
